@@ -1347,6 +1347,23 @@ def go_live(cid: str, body: dict = Body(default={})):
         raise HTTPException(400, str(e))
 
 
+@app.post("/api/live/quick")
+def quick_live(body: dict = Body(...)):
+    """Start a one-off live recording directly from a stream link, with optional creator settings."""
+    _need_verified()
+    url = str(body.get("url") or "").strip()[:500]
+    if not url or not media.site_allowed(live.normalize(url)):
+        raise HTTPException(400, "Paste a live YouTube, Twitch or Kick stream link.")
+    creator_id = str(body.get("creator") or "").strip()
+    c = creators.get(creator_id) if creator_id else None
+    if creator_id and not c:
+        raise HTTPException(404, "No such creator")
+    try:
+        return jobs.public(live.start_session(c, url))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/live/{jid}/stop")
 def stop_live(jid: str):
     s = live.mine(jid)
