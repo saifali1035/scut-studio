@@ -158,7 +158,19 @@ def _hook_events(hook, dur, y):
     return ev
 
 
-def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> str:
+def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y, cold_open=None) -> str:
+    if cold_open:
+        teaser_start, teaser_end = start + cold_open[0], start + cold_open[1]
+        teaser_dur = teaser_end - teaser_start
+        teased, main = [], []
+        for word in words:
+            a, b = max(word["s"], teaser_start), min(word["e"], teaser_end)
+            if b > a:
+                teased.append(dict(word, s=a - teaser_start, e=b - teaser_start))
+            a, b = max(word["s"], start), min(word["e"], end)
+            if b > a:
+                main.append(dict(word, s=a - start + teaser_dur, e=b - start + teaser_dur))
+        return build_ass(teased + main, 0, end - start + teaser_dur, hook, style_name, highlight, hook_y, cap_y)
     st = STYLES.get(style_name, STYLES["bounce"])
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
@@ -230,15 +242,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return head + "\n".join(ev) + "\n"
 
 
-def _filter(layout, fg_h):
+def _filter(layout, fg_h, cold_open=None):
+    prefix, video = "", "[0:v]"
+    if cold_open:
+        a, b = cold_open
+        prefix = (f"[0:v]split=2[tease0][main0];[tease0]trim=start={a:.3f}:end={b:.3f},"
+                  f"setpts=PTS-STARTPTS[tease];[main0]setpts=PTS-STARTPTS[main];"
+                  f"[tease][main]concat=n=2:v=1:a=0[base];")
+        video = "[base]"
     if layout == "crop":
-        return f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
+        return prefix + f"{video}fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
     if layout == "split":
         half = H // 2
-        return (f"[0:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[top];"
+        return prefix + (f"{video}fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[top];"
                 f"[1:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[game];"
                 f"[top][game]vstack=inputs=2,setsar=1[v0];")
-    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
+    return prefix + (f"{video}fps={config.OUT_FPS},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
@@ -257,32 +276,41 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
     if layout == "split" and (not game_src or not game_src.is_file()):
         raise RuntimeError("Add a gameplay video, then remake this clip with the split screen layout.")
+    cold_open = clip.get("cold_open") if clip.get("cold_open_enabled") and clip.get("cold_open") else None
     ass = build_ass(words, start, end, clip.get("hook", ""), clip.get("style", "bounce"),
-                    clip.get("highlight_words", []), hook_y, cap_y)
+                    clip.get("highlight_words", []), hook_y, cap_y, cold_open)
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
     # folders easily reaches. Inside the work folder every name is short and relative (a drive colon would also
     # break the filter syntax).
     work = Path(tempfile.mkdtemp(prefix="pk"))
     try:
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, game_src)
+        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, game_src, cold_open)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str,
-               game_src: Path | None = None) -> dict:
+               game_src: Path | None = None, cold_open=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h) + f"[v0]ass={name}.ass:fontsdir=f[v]"
+    fc = _filter(layout, fg_h, cold_open)
+    audio_map = "0:a:0"
+    if cold_open:
+        a, b = cold_open
+        fc += (f"[0:a]asplit=2[at0][am0];[at0]atrim=start={a:.3f}:end={b:.3f},"
+               "asetpts=PTS-STARTPTS[at];[am0]asetpts=PTS-STARTPTS[am];"
+               "[at][am]concat=n=2:v=0:a=1[teased_audio];")
+        audio_map = "[teased_audio]"
+    fc += f"[v0]ass={name}.ass:fontsdir=f[v]"
     inputs = ["-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src)]
     if layout == "split":
         inputs += ["-stream_loop", "-1", "-i", str(game_src)]
     base = ["ffmpeg", "-y", "-v", "error", *inputs,
-            "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", *(["-shortest"] if layout == "split" else []),
+            "-filter_complex", fc, "-map", "[v]", "-map", audio_map, *(["-shortest"] if layout == "split" else []),
             "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]
     encoders = []
