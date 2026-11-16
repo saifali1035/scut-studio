@@ -135,9 +135,15 @@ instantaneously.
 
 Create a creator workspace to keep its channels, default clip settings, post targets, score threshold, spacing,
 daily cap and activity history together. A creator can be configured to auto-post clips that meet its score
-threshold. Posting gaps and daily caps apply to scheduled and automatic posts. Live-stream recording and clipping
-can be started from a creator workspace; SCut Studio continues recording into a rolling buffer and evaluates highlights
-using the transcript, loudness and available chat activity.
+threshold. Posting gaps and daily caps apply to scheduled and automatic posts.
+
+To quickly clip a live stream, paste its direct YouTube, Twitch or Kick stream link into **All videos**. Once SCut
+Studio identifies it as live, press **Watch live now** on that link. You do not need to create a creator first; with
+no creator selected, the app uses its default live clipping settings. If you select a creator, its live settings apply
+and the recording is filed under that creator. SCut Studio records into a rolling buffer and evaluates highlights
+using the transcript, loudness and available Twitch chat activity. The live recording appears in **All videos**, where
+you can clip the latest 30 or 60 seconds manually or stop recording. Automatic channel monitoring remains available
+in a creator's Setup.
 
 To post, connect the relevant account under **Settings, Connected apps**. YouTube posting needs a Google OAuth client;
 Instagram and TikTok need their platform developer apps. The one-time account/app setup steps and callback addresses
