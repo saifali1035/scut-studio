@@ -1367,6 +1367,7 @@ function drawAdd(variant) {
       ${c ? "" : picker("o_creator", "File under creator", [{v:"", label:"No creator", icon:"user"}, ...S.creators.map(x => ({v:x.id, label:x.name, img:x.profile?.pic && x.profile.channel === x.channel ? avatarUrl(x) : ""}))], "")}
       <button type="button" class="chip" data-act="toggleopts" aria-expanded="false">${ic("sliders")}Options</button>
       <span class="grow"></span><span class="hint">or drop a video file here</span>
+      <button type="button" class="btn" data-act="watchlive"><span class="rdot"></span>Start live</button>
       <button class="btn primary" id="goBtn">${ic("scissors")}Make clips</button>
     </div>
     <div class="composer-opts" inert><div class="og">
@@ -2451,8 +2452,13 @@ document.addEventListener("click", async e => {
     if (a === "spick") { S.spick = {...S.spick, [creatorId()]: d.p}; return drawStream(); }
     if (a === "chmain") return saveChannels(creator().channels, creator().channels[d.p]);
     if (a === "watchlive") {
-      const A = att(), item = A.links.find(l => l.id === d.id);
-      if (!item || item.state !== "ok" || !item.info?.is_live) return toast("That stream is no longer available. Paste its link again to check.", "bad");
+      const A = att(), item = d.id ? A.links.find(l => l.id === d.id) : A.links.find(l => l.state === "ok" && l.info?.is_live);
+      if (!item) {
+        if (A.links.some(l => l.state === "wait")) return toast("Checking the link. Start live once it shows Live now.");
+        $("#url")?.focus(); return toast("Paste a live stream link above. Start live becomes available when SCut Studio recognizes it as live.");
+      }
+      if (item.state === "wait") return toast("Checking the link. Start live once it shows Live now.");
+      if (item.state !== "ok" || !item.info?.is_live) return toast("That link is not recognized as a live stream. Paste a current live stream link and try again.", "bad");
       const was = b.innerHTML; b.disabled = true; b.innerHTML = `<span class="rdot"></span>Starting…`;
       const cid0 = creatorId() || $("#o_creator")?.value || "";
       try {
