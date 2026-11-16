@@ -419,6 +419,9 @@ def request_render(jid, cid, changes: dict):
     for k in ("start", "end"):
         if k in changes:
             new[k] = round(float(changes[k]), 2)
+    if any(k in changes and new[k] != clip[k] for k in ("start", "end")):
+        new["cold_open"] = None
+        new["cold_open_enabled"] = False
     if "src_offset" in clip:  # live clip: can only move inside the saved piece of stream
         new["start"] = max(new["start"], clip["src_offset"])
         new["end"] = min(new["end"], clip["src_end"])
@@ -429,6 +432,8 @@ def request_render(jid, cid, changes: dict):
     for k in ("hook", "title", "description", "style", "layout"):
         if k in changes:
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
+    if "cold_open_enabled" in changes:
+        new["cold_open_enabled"] = bool(changes["cold_open_enabled"] and new.get("cold_open"))
     if new.get("style") not in render.STYLES:
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
