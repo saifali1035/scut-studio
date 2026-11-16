@@ -21,13 +21,17 @@ SCHEMA = {
             "score": {"type": "INTEGER"},
             "category": {"type": "STRING"},
             "hook": {"type": "STRING"},
+            "hook_options": {"type": "ARRAY", "items": {"type": "STRING"}},
             "title": {"type": "STRING"},
+            "tease_start": {"type": "NUMBER"},
+            "tease_end": {"type": "NUMBER"},
             "description": {"type": "STRING"},
             "hashtags": {"type": "ARRAY", "items": {"type": "STRING"}},
             "highlight_words": {"type": "ARRAY", "items": {"type": "STRING"}},
             "reason": {"type": "STRING"},
         },
-        "required": ["start", "end", "score", "hook", "title", "description", "hashtags", "reason"],
+        "required": ["start", "end", "score", "hook", "hook_options", "title", "tease_start", "tease_end",
+                     "description", "hashtags", "reason"],
     },
 }
 
@@ -58,7 +62,12 @@ Rules:
 - Skip weak moments. Fewer strong clips beat many weak ones. Return [] if nothing is worth clipping.
 - score: 0-100, how likely a stranger keeps watching. Be honest; most clips are 50-80.
 - hook: at most 5 words, ALL CAPS, shown as big text on the video. Curiosity, but true to what happens.
+- hook_options: exactly 3 alternatives, in order: curiosity-led, funny, dramatic. Keep each short and true.
+  The main hook must match one of these options.
 - title: at most 70 characters, for the post.
+- tease_start and tease_end: transcript seconds for a 1 to 3 second excerpt inside this clip that previews its
+  payoff. Pick a real spoken line or reaction from the payoff, not a random word. If there is no good teaser,
+  set both values to 0. A selected teaser will play first, then the full clip from its original beginning.
 - description: one or two sentences.
 - hashtags: 5 tags without the # sign.
 - highlight_words: 3 to 6 single words spoken in the clip that carry the punch.
@@ -118,15 +127,28 @@ def _tidy(c, s, e):
     tags = c.get("hashtags") if isinstance(c.get("hashtags"), list) else []
     tags = [re.sub(r"\W", "", str(h))[:30] for h in tags if isinstance(h, (str, int))]
     words = c.get("highlight_words") if isinstance(c.get("highlight_words"), list) else []
-    return {
+    hook = roman.to_roman(_text(c.get("hook"), 60)).upper()
+    hooks = list(dict.fromkeys(roman.to_roman(_text(h, 60)).upper() for h in
+                               (c.get("hook_options") if isinstance(c.get("hook_options"), list) else [])
+                               if _text(h, 60)))[:3]
+    if hook and hook not in hooks:
+        hooks = ([hook] + hooks)[:3]
+    clip = {
         "start": s, "end": e, "score": max(0, min(100, int(_num(c.get("score"))))),
         "category": cat if cat in CATEGORIES else "other",
-        "hook": roman.to_roman(_text(c.get("hook"), 60)).upper(), "title": roman.to_roman(_text(c.get("title"), 100)),
+        "hook": hook, "title": roman.to_roman(_text(c.get("title"), 100)), "hook_options": hooks,
+        "cold_open": None,
         "description": roman.to_roman(_text(c.get("description"), 300)),
         "hashtags": [t for t in tags if t][:8],
         "highlight_words": [roman.to_roman(_text(h, 30)) for h in words][:8],
         "reason": _text(c.get("reason"), 200),
     }
+    tease_s, tease_e = _num(c.get("tease_start"), 0), _num(c.get("tease_end"), 0)
+    tease_s, tease_e = max(s, tease_s), min(e, tease_e)
+    if 1.0 <= tease_e - tease_s <= 3.5:
+        clip["cold_open"] = [round(tease_s - s, 2), round(tease_e - s, 2)]
+    clip["cold_open_enabled"] = bool(clip["cold_open"])
+    return clip
 
 
 def _same_word(old, new):
