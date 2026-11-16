@@ -636,14 +636,16 @@ def recover(job):
     jobs.submit_live(cleanup)
 
 
-def start_session(creator: dict, url=None) -> dict:
-    url = normalize(url or creator.get("channel") or "")
+def start_session(creator: dict | None, url=None) -> dict:
+    settings = creator or creators.DEFAULTS
+    cid = creator.get("id") if creator else None
+    url = normalize(url or settings.get("channel") or "")
     if not re.match(r"^https?://[^/]+\.[^/]+/", url + "/"):
-        raise ValueError("Add this creator's channel link first.")
-    if active_for(creator["id"]):
+        raise ValueError("Paste a link to a live YouTube, Twitch or Kick stream.")
+    if cid and active_for(cid):
         raise ValueError("This creator is already being recorded.")
     if not media.site_allowed(url):
-        raise ValueError("Channel links must be from YouTube, Twitch or Kick.")
+        raise ValueError("Live stream links must be from YouTube, Twitch or Kick.")
     if media.is_youtube(url) and media.youtube_paused():
         raise ValueError(media.YT_BLOCKED.replace("download videos", "record YouTube streams")
                          .replace("Upload the video file instead, or use a Twitch or Kick link. YouTube links",
@@ -655,11 +657,12 @@ def start_session(creator: dict, url=None) -> dict:
     from . import tools
     if tools.missing():
         raise ValueError(tools.HELP)
-    job = jobs.create({"type": "live", "url": url, "name": f"{creator['name']} live"}, {}, enqueue=False,
-                      creator=creator["id"], kind="live")
+    name = f"{settings['name']} live" if cid else "Live stream"
+    job = jobs.create({"type": "live", "url": url, "name": name}, {}, enqueue=False,
+                      creator=cid, kind="live")
     job.update(status="live", stage="Connecting to the stream")
     jobs.save(job)
-    Session(job, creator).start()
+    Session(job, settings).start()
     return job
 
 
