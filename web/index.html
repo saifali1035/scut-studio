@@ -2455,7 +2455,7 @@ document.addEventListener("click", async e => {
       const A = att(), item = d.id ? A.links.find(l => l.id === d.id) : A.links.find(l => l.state === "ok" && l.info?.is_live);
       if (!item) {
         if (A.links.some(l => l.state === "wait")) return toast("Checking the link. Start live once it shows Live now.");
-        $("#url")?.focus(); return toast("Paste a live stream link above. Start live becomes available when SCut Studio recognizes it as live.");
+        $("#url")?.focus(); return toast("Paste a live stream link above, then press Start live once it shows Live now.");
       }
       if (item.state === "wait") return toast("Checking the link. Start live once it shows Live now.");
       if (item.state !== "ok" || !item.info?.is_live) return toast("That link is not recognized as a live stream. Paste a current live stream link and try again.", "bad");
