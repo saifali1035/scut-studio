@@ -1357,7 +1357,7 @@ function setTab(t) {
 function drawAdd(variant) {
   const c = creator();
   $("#add").innerHTML = `<form class="composer ${variant === "hero" ? "big" : "compact"}" id="addform">
-    <div class="composer-input">${ic("link")}<input id="url" placeholder="Source video · paste a YouTube, Twitch or Kick link" autocomplete="off" aria-label="Source video link"></div>
+    <div class="composer-input">${ic("link")}<input id="url" placeholder="Source video or live stream link" autocomplete="off" aria-label="Source video or live stream link"></div>
     <div class="composer-input game-link-input">${ic("link")}<input id="gameurl" placeholder="Gameplay video link for the lower half (optional)" autocomplete="off" aria-label="Gameplay video link"><button type="button" class="chip" data-act="usegame">Use gameplay link</button></div>
     <small class="sub" style="display:block;padding:0 16px 9px 48px">Gameplay links use the first 45 seconds and loop; uploaded gameplay is looped as needed.</small>
     <div class="att" id="att"><div><div class="att-in" id="attIn"></div></div></div>
@@ -1532,7 +1532,7 @@ function drawAtt() {
     const i = l.info;
     return rowHtml(A, {id: l.id, kind: "link", thumb: i.thumb ? `<img src="${i.thumb}" alt="">` : "", len: i.duration && !i.is_live ? fmtLen(i.duration) : "",
       title: i.title, sub: esc(i.uploader || "Video link"),
-      side: l.sending ? `<span class="ok up">Sending</span>` : i.is_live ? `<span class="ok live"><i></i>Live now</span>` : `<span class="ok">${ic("check")}Ready</span>`});
+      side: l.sending ? `<span class="ok up">Sending</span>` : i.is_live ? `<span class="ok live"><i></i>Live now</span><button type="button" class="btn sm primary" data-act="watchlive" data-id="${l.id}" aria-label="Start clipping ${esc(i.title || "live stream")}"><span class="rdot"></span>Watch live now</button>` : `<span class="ok">${ic("check")}Ready</span>`});
   }).join("");
   h += A.files.map(f => rowHtml(A, {id: f.id, kind: "file", thumb: `<video src="${f.src}#t=1" muted preload="metadata" playsinline></video>`,
     len: f.dur ? fmtLen(f.dur) : "", title: f.file.name,
@@ -1548,7 +1548,7 @@ function drawAtt() {
     if (f && !f.dur) { f.dur = v.duration; const th = v.parentElement; if (!th.querySelector(".du")) th.insertAdjacentHTML("beforeend", `<span class="du">${fmtLen(f.dur)}</span>`); }
   }, {once: true}));
   $("#att")?.classList.toggle("has", !!h);
-  const u = $("#url"); if (u) u.placeholder = A.links.length || A.files.length ? "Paste another link" : "Paste a YouTube, Twitch or Kick video link";
+  const u = $("#url"); if (u) u.placeholder = A.links.length || A.files.length ? "Paste another link" : "Paste a YouTube, Twitch or Kick video or live stream link";
   const b = $("#goBtn");
   if (b) { b.disabled = A.busy;
     const k = A.files.length + A.links.filter(l => l.state === "ok").length;
@@ -2450,6 +2450,24 @@ document.addEventListener("click", async e => {
     if (a === "chdel") { const chs = {...creator().channels}; delete chs[d.p]; return saveChannels(chs); }
     if (a === "spick") { S.spick = {...S.spick, [creatorId()]: d.p}; return drawStream(); }
     if (a === "chmain") return saveChannels(creator().channels, creator().channels[d.p]);
+    if (a === "watchlive") {
+      const A = att(), item = A.links.find(l => l.id === d.id);
+      if (!item || item.state !== "ok" || !item.info?.is_live) return toast("That stream is no longer available. Paste its link again to check.", "bad");
+      const was = b.innerHTML; b.disabled = true; b.innerHTML = `<span class="rdot"></span>Starting…`;
+      const cid0 = creatorId() || $("#o_creator")?.value || "";
+      try {
+        const j = await send("/api/live/quick", {url:item.url, creator:cid0});
+        A.links = A.links.filter(l => l.id !== item.id); A.note = null; drawAtt();
+        if (j?.id) {
+          if (cid0) { const c = S.creators.find(x => x.id === cid0); if (c) c.live_job = j.id; }
+          if (!jobOf(j.id)) S.jobs.unshift(j);
+        }
+        render();
+        toast("Watching live stream. Clips will appear here as they’re made.", "ok");
+        if (creatorId() === cid0 && cid0) setTab("clips"); else go("library");
+        return tick();
+      } catch (err) { b.disabled = false; b.innerHTML = was; throw err; }
+    }
     if (a === "golive") {
       if (!creator().channel) { setTab("setup"); return toast("Connect one of their channels first, then press Start recording.", "bad"); }
       b.disabled = true; const was = b.innerHTML; b.innerHTML = `<span class="rdot"></span>Starting…`;
