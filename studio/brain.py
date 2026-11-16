@@ -62,9 +62,14 @@ Rules:
 - description: one or two sentences.
 - hashtags: 5 tags without the # sign.
 - highlight_words: 3 to 6 single words spoken in the clip that carry the punch.
-- Write hook, title, description, hashtags and highlight_words in English. If the video is in Hindi or Urdu,
-  you may write them the way people type Hindi and Urdu in Roman letters (Hinglish: "yaar ye kya hai"), never
-  in Devanagari or Urdu script. For any other language, write them in English.
+- Match the hook, title, description, hashtags and highlight_words to the language people speak in the transcript.
+  When most of the speech is Hindi (including Hindi transcribed in Roman letters), write catchy, natural Hinglish
+  in Roman letters: use conversational Hindi with familiar English words where they fit. Do not translate a Hindi
+  moment into an English-only headline, and never use Devanagari or Urdu script. For mixed-language speech, use
+  the language that carries the moment's setup and payoff. If the speech is English, write in English; otherwise,
+  use the transcript's dominant language and script people commonly use online for that language.
+- Make hooks and titles specific, punchy and true to the moment. Prefer a short curiosity hook a Hindi-speaking
+  viewer would actually say over generic labels such as "GHOST IN MY ROOM" or "THE WORST BIRTHDAY GIFT EVER."
 - category: one of funny, fail, clutch, rage, shock, take, story, other.
 - reason: one short sentence on why it works.
 
