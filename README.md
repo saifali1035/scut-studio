@@ -118,8 +118,12 @@ YouTube, Twitch or Kick video can be used as a gameplay link; live streams, chan
 ### Review, edit, cancel and post clips
 
 Open a video job to review the generated clips. You can preview, download, copy a clip, edit its title and hook,
-adjust the clip timing, or remake it with another caption style, layout or quality. The split-screen layout is only
-available for a remake when the job has gameplay footage attached.
+choose from three suggested hooks, adjust the clip timing, or remake it with another caption style, layout or
+quality. For Hindi speech, hooks and titles are written in Roman-script Hinglish. When the AI finds a short payoff
+worth teasing, the clip opens with that excerpt and then replays from the original start; turn this **Cold open**
+option off in the editor if you prefer a straight cut. The editor's **Shorts safe-area guide** marks approximate
+areas covered by Shorts controls and lower-screen text. The split-screen layout is only available for a remake when
+the job has gameplay footage attached.
 
 While a video job is queued or running, use **Cancel clipping** to stop it. A queued job is removed from the worker
 queue; a running job stops after its current download/transcription/render step. Clips already finished remain
