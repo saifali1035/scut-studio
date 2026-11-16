@@ -599,6 +599,11 @@ dialog::backdrop{background:rgba(14,12,11,.42);animation:fadein .16s ease}
 .editor video,.editor .stage img{width:100%;max-height:calc(100vh - 48px);aspect-ratio:9/16;object-fit:contain;display:block}
 .editor .panel{padding:22px;overflow:auto;display:flex;flex-direction:column;gap:14px}
 .editor h3{font-size:13px;font-weight:600;color:var(--dim);margin-top:6px}
+.safe-overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden;border:1px solid rgba(255,255,255,.6);box-sizing:border-box}
+.safe-overlay .safe-frame{position:absolute;inset:6% 19% 22% 4%;border:1px dashed rgba(255,255,255,.88);border-radius:8px;box-shadow:0 0 0 999px rgba(8,14,20,.10)}
+.safe-overlay .safe-right{position:absolute;top:6%;right:0;width:18%;height:65%;background:rgba(255,88,78,.23);border-left:1px dashed rgba(255,255,255,.8);display:grid;place-items:center;color:white;font-size:11px;text-shadow:0 1px 3px #000;writing-mode:vertical-rl}
+.safe-overlay .safe-bottom{position:absolute;bottom:0;left:0;width:100%;height:21%;background:rgba(255,88,78,.23);border-top:1px dashed rgba(255,255,255,.8);display:grid;place-items:center;color:white;font-size:11px;text-shadow:0 1px 3px #000}
+.hook-choices{display:flex;flex-wrap:wrap;gap:6px}.hook-choices .btn{font-size:12px}.hook-choices .btn.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:50}
 .toast{background:var(--frame);color:var(--frame-text);border:1px solid var(--frame-2);border-radius:var(--r);padding:12px 16px;max-width:380px;animation:rise .2s ease;display:flex;gap:10px;align-items:center;font-weight:500}
@@ -1052,7 +1057,7 @@ function startTour() {
 /* ============================================================ state */
 const S = {status:{styles:{}, layouts:{}, clip_profiles:{}}, jobs:[], creators:[], accounts:[], overview:null, settings:null,
            view:"overview", ctab:"clips"};
-const D = {jid:null, cid:null, sig:""};
+const D = {jid:null, cid:null, sig:"", safe:true};
 const creatorId = () => S.view.startsWith("c:") ? S.view.slice(2) : null;
 const creator = () => S.creators.find(c => c.id === creatorId());
 const jobOf = id => S.jobs.find(j => j.id === id);
@@ -2181,7 +2186,8 @@ function drawClipDlg(full) {
   const j = jobOf(D.jid), c = j?.clips.find(x => x.id === D.cid), dlg = $("#clipdlg");
   if (!c) { if (dlg.open) dlg.close(); return; }
   const m = `/media/${j.id}/`, sig = c.status + c.version;
-  const stage = c.status === "done" ? `<video src="${m}${esc(c.file)}?v=${c.version}" poster="${m}${esc(c.cover)}?v=${c.version}" controls autoplay playsinline></video>`
+  const safeOverlay = D.safe ? `<div class="safe-overlay"><div class="safe-frame"></div><div class="safe-right">Shorts buttons</div><div class="safe-bottom">Description and captions</div></div>` : "";
+  const stage = c.status === "done" ? `<video src="${m}${esc(c.file)}?v=${c.version}" poster="${m}${esc(c.cover)}?v=${c.version}" controls autoplay playsinline></video>${safeOverlay}`
     : c.status === "error" ? `<div class="err" style="padding:20px;text-align:center">${esc(c.error || "Could not make this clip.")}</div>`
     : `<span class="making">${c.status === "rendering" ? "Making this clip…" : "Waiting its turn…"}</span>`;
   if (full) {
@@ -2191,6 +2197,9 @@ function drawClipDlg(full) {
           <p class="sub" style="margin-top:8px">${esc(c.reason || "")}</p></div><button class="btn icon ghost" data-act="closedlg" aria-label="Close">${ic("x")}</button></div>
         <h3>On the video</h3>
         <label class="f">Big text<input data-f="hook" value="${esc(c.hook)}"></label>
+        ${c.hook_options?.length ? `<div class="hook-choices" aria-label="Suggested hook options">${c.hook_options.map((h,i) => `<button class="btn sm ${h === c.hook ? "on" : ""}" type="button" data-act="hookpick" data-hook="${esc(h)}">${i === 0 ? "Curiosity" : i === 1 ? "Funny" : "Dramatic"}: ${esc(h)}</button>`).join("")}</div>` : ""}
+        ${c.cold_open ? `<label class="ck"><input data-f="cold_open_enabled" type="checkbox" ${c.cold_open_enabled ? "checked" : ""}>Open with a quick payoff teaser, then replay the clip from the start</label>` : ""}
+        <button class="btn sm" type="button" data-act="safetoggle">${D.safe ? "Hide Shorts safe-area guide" : "Show Shorts safe-area guide"}</button>
         <div class="two"><label class="f">Caption style<select data-f="style">${opts(S.status.styles, c.style)}</select></label>
           <label class="f">Layout<select data-f="layout">${opts(j.has_gameplay ? S.status.layouts : Object.fromEntries(Object.entries(S.status.layouts).filter(([k]) => k !== "split")), c.layout)}</select></label></div>
         <div class="two"><label class="f">Start (seconds)<input data-f="start" type="number" step="0.5" value="${c.start}"></label>
@@ -2345,6 +2354,11 @@ document.addEventListener("click", async e => {
     if (a === "addmore") { const u = $("#url"); return u && !u.value ? (u.focus(), toast("Paste another link, or drop a file anywhere on the box.")) : $("#file").click(); }
     if (a === "closedlg") return $("#clipdlg").close();
     if (a === "openclip") return openClip(d.j, d.c);
+    if (a === "hookpick") {
+      const input = $("#clipdlg [data-f=hook]"); if (input) input.value = d.hook || "";
+      $$("#clipdlg [data-act=hookpick]").forEach(x => x.classList.toggle("on", x === b)); return;
+    }
+    if (a === "safetoggle") { D.safe = !D.safe; return drawClipDlg(true); }
     if (a === "newcreator") {
       const dlg = $("#formdlg");
       dlg.innerHTML = `<form method="dialog" class="dlg"><h2>New creator</h2><p class="help">Each creator gets their own workspace, folder, settings and accounts.</p>
@@ -2535,7 +2549,7 @@ document.addEventListener("click", async e => {
       await api(`/api/accounts/${d.id}`, {method:"DELETE"}); await tick(); return drawSettings();
     }
     if (a === "remake") {
-      const body = {}; $$("#clipdlg [data-f]").forEach(i => body[i.dataset.f] = i.type === "number" ? Number(i.value) : i.value);
+      const body = {}; $$("#clipdlg [data-f]").forEach(i => body[i.dataset.f] = i.type === "number" ? Number(i.value) : i.type === "checkbox" ? i.checked : i.value);
       await send(`/api/jobs/${D.jid}/clips/${D.cid}/render`, body); toast("Re-making the clip…", "ok"); return tick();
     }
     if (a === "postnow" || a === "postqueue") {
