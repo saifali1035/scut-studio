@@ -106,7 +106,8 @@ moments, but the focus profiles and AI-written titles are not available in that 
 - **Caption style:** Bounce, Hype or Clean changes the word-by-word caption appearance.
 - **Layout:** Blurred fill keeps the source frame visible over a blurred background; Zoomed in enlarges the frame
   over a blurred background; Fill screen centre-crops the source to fill the vertical canvas; Game split places the
-  speaker video in the upper half and gameplay in the lower half.
+  speaker video in the upper half and gameplay in the lower half; **Facecam + gameplay** uses a facecam and gameplay
+  from the same source.
 - **Video quality:** choose 720p for faster rendering or 1080p for a sharper, slower render.
 
 To use **Game split**, add a separate gameplay video in the **Gameplay video** field. SCut Studio treats the main video
@@ -114,6 +115,11 @@ as the speaker/source and the separate gameplay file or link as the lower panel;
 source video's audio is kept. Uploaded gameplay loops as needed. For a gameplay link, SCut Studio uses and loops the
 first 45 seconds. Add one gameplay source for the batch; it is used for every source video in that batch. A finished
 YouTube, Twitch or Kick video can be used as a gameplay link; live streams, channels and playlists are not accepted.
+
+For **Facecam + gameplay**, SCut Studio takes both panels from the same source at matching timestamps. In **All videos**,
+drag and resize the facecam box over the webcam in the sampled frame. Face tracking adjusts the crop position and size
+locally while rendering; if the face disappears briefly, the crop holds its last position. It uses OpenCV from
+`requirements.txt`, adds local processing time but makes no extra AI requests, and needs no second video upload.
 
 ### Review, edit, cancel and post clips
 
@@ -147,7 +153,9 @@ no creator selected, the app uses its default live clipping settings. If you sel
 and the recording is filed under that creator. SCut Studio records into a rolling buffer and evaluates highlights
 using the transcript, loudness and available Twitch chat activity. The live recording appears in **All videos**, where
 you can clip the latest 30 or 60 seconds manually or stop recording. Automatic channel monitoring remains available
-in a creator's Setup.
+in a creator's Setup. Choose **Facecam + gameplay** under the creator's **Setup → Clips → Layout** to apply it to live
+clips. Live setup currently uses a default webcam area near the lower left; the draggable crop editor is available
+for uploaded or linked videos, not live setup.
 
 To post, connect the relevant account under **Settings, Connected apps**. YouTube posting needs a Google OAuth client;
 Instagram and TikTok need their platform developer apps. The one-time account/app setup steps and callback addresses

@@ -21,17 +21,13 @@ SCHEMA = {
             "score": {"type": "INTEGER"},
             "category": {"type": "STRING"},
             "hook": {"type": "STRING"},
-            "hook_options": {"type": "ARRAY", "items": {"type": "STRING"}},
             "title": {"type": "STRING"},
-            "tease_start": {"type": "NUMBER"},
-            "tease_end": {"type": "NUMBER"},
             "description": {"type": "STRING"},
             "hashtags": {"type": "ARRAY", "items": {"type": "STRING"}},
             "highlight_words": {"type": "ARRAY", "items": {"type": "STRING"}},
             "reason": {"type": "STRING"},
         },
-        "required": ["start", "end", "score", "hook", "hook_options", "title", "tease_start", "tease_end",
-                     "description", "hashtags", "reason"],
+        "required": ["start", "end", "score", "hook", "title", "description", "hashtags", "reason"],
     },
 }
 
@@ -62,12 +58,7 @@ Rules:
 - Skip weak moments. Fewer strong clips beat many weak ones. Return [] if nothing is worth clipping.
 - score: 0-100, how likely a stranger keeps watching. Be honest; most clips are 50-80.
 - hook: at most 5 words, ALL CAPS, shown as big text on the video. Curiosity, but true to what happens.
-- hook_options: exactly 3 alternatives, in order: curiosity-led, funny, dramatic. Keep each short and true.
-  The main hook must match one of these options.
 - title: at most 70 characters, for the post.
-- tease_start and tease_end: transcript seconds for a 1 to 3 second excerpt inside this clip that previews its
-  payoff. Pick a real spoken line or reaction from the payoff, not a random word. If there is no good teaser,
-  set both values to 0. A selected teaser will play first, then the full clip from its original beginning.
 - description: one or two sentences.
 - hashtags: 5 tags without the # sign.
 - highlight_words: 3 to 6 single words spoken in the clip that carry the punch.
@@ -75,8 +66,8 @@ Rules:
   When most of the speech is Hindi (including Hindi transcribed in Roman letters), write catchy, natural Hinglish
   in Roman letters: use conversational Hindi with familiar English words where they fit. Do not translate a Hindi
   moment into an English-only headline, and never use Devanagari or Urdu script. For mixed-language speech, use
-  the language that carries the moment's setup and payoff. If the speech is English, write in English; otherwise,
-  use the transcript's dominant language and script people commonly use online for that language.
+  the language that carries the moment’s setup and payoff. If the speech is English, write in English; otherwise,
+  use the transcript’s dominant language and script people commonly use online for that language.
 - Make hooks and titles specific, punchy and true to the moment. Prefer a short curiosity hook a Hindi-speaking
   viewer would actually say over generic labels such as "GHOST IN MY ROOM" or "THE WORST BIRTHDAY GIFT EVER."
 - category: one of funny, fail, clutch, rage, shock, take, story, other.
@@ -127,28 +118,16 @@ def _tidy(c, s, e):
     tags = c.get("hashtags") if isinstance(c.get("hashtags"), list) else []
     tags = [re.sub(r"\W", "", str(h))[:30] for h in tags if isinstance(h, (str, int))]
     words = c.get("highlight_words") if isinstance(c.get("highlight_words"), list) else []
-    hook = roman.to_roman(_text(c.get("hook"), 60)).upper()
-    hooks = list(dict.fromkeys(roman.to_roman(_text(h, 60)).upper() for h in
-                               (c.get("hook_options") if isinstance(c.get("hook_options"), list) else [])
-                               if _text(h, 60)))[:3]
-    if hook and hook not in hooks:
-        hooks = ([hook] + hooks)[:3]
-    clip = {
+    return {
         "start": s, "end": e, "score": max(0, min(100, int(_num(c.get("score"))))),
         "category": cat if cat in CATEGORIES else "other",
-        "hook": hook, "title": roman.to_roman(_text(c.get("title"), 100)), "hook_options": hooks,
-        "cold_open": None,
+        "hook": roman.to_roman(_text(c.get("hook"), 60)).upper(),
+        "title": roman.to_roman(_text(c.get("title"), 100)),
         "description": roman.to_roman(_text(c.get("description"), 300)),
         "hashtags": [t for t in tags if t][:8],
         "highlight_words": [roman.to_roman(_text(h, 30)) for h in words][:8],
         "reason": _text(c.get("reason"), 200),
     }
-    tease_s, tease_e = _num(c.get("tease_start"), 0), _num(c.get("tease_end"), 0)
-    tease_s, tease_e = max(s, tease_s), min(e, tease_e)
-    if 1.0 <= tease_e - tease_s <= 3.5:
-        clip["cold_open"] = [round(tease_s - s, 2), round(tease_e - s, 2)]
-    clip["cold_open_enabled"] = bool(clip["cold_open"])
-    return clip
 
 
 def _same_word(old, new):
@@ -315,13 +294,24 @@ def find_clips(words, db, duration, title="", uploader="", max_clips=6, min_len=
     return clips, {"model": used_model, "tokens": tokens, "note": note}
 
 
-def find_live_clips(words, z, now, chat=None, title="", uploader="", min_len=15, max_len=60, existing=()):
-    """One live check over the recent transcript. Returns (clips, tokens_used)."""
-    lines = make_lines(words, z, chat)
+def find_live_clips(words, z, now, chat=None, title="", uploader="", min_len=15, max_len=60, existing=(),
+                    n=2, must=False, clip_profile="balanced"):
+    """One live check over words and reaction signals. Keep it to one model call per check."""
+    chat_mark = None
+    if isinstance(chat, (list, tuple)):
+        chat_mark = lambda s, e: any(chat[max(0, int(s)):min(len(chat), int(e) + 1)])
+    elif callable(chat):
+        chat_mark = chat
+    lines = make_lines(words, z, chat_mark)
     if len(lines) < 3:
         return [], 0
-    prompt = (HEAD.format(title=_safe(title) or "unknown", uploader=_safe(uploader) or "unknown", n=2)
+    must_note = "This time, pick the single strongest moment even if it is only decent.\n" if must else ""
+    prompt = (HEAD.format(title=_safe(title) or "unknown", uploader=_safe(uploader) or "unknown", n=n)
               + LIVE_NOTE.format(now=now)
+              + must_note
+              + "Use both what was said and the (LOUD)/(CHAT) markers when judging each moment. "
+                "A strong transcript moment can still qualify without a loudness spike.\n\n"
+              + clip_profiles.prompt_for(clip_profile)
               + RULES.format(min_len=min_len, max_len=max_len, transcript=_fmt(lines)))
     out, _model, spent = ask_ai(prompt, purpose="Live check")
     clips = []

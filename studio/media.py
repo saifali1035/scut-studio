@@ -2,7 +2,9 @@
 import contextlib
 import json
 import re
+import random
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -189,6 +191,7 @@ def _caption_words(data: dict) -> list:
 
 
 _PREVIEWS: dict = {}
+_PREVIEW_FRAMES: dict = {}
 
 
 def preview(url: str) -> dict:
@@ -219,6 +222,38 @@ def preview(url: str) -> dict:
     if len(_PREVIEWS) > 300:
         _PREVIEWS.pop(next(iter(_PREVIEWS)))
     _PREVIEWS[url] = out
+    return out
+
+
+def preview_frame(url: str) -> dict:
+    """Return a cached frame sampled near the middle of a finished video for the facecam crop editor."""
+    import base64
+    url = url.strip()
+    if url in _PREVIEW_FRAMES:
+        return _PREVIEW_FRAMES[url]
+    i = info(url)
+    if i.get("kind") != "video" or i.get("is_live"):
+        raise ValueError("Use a finished video to preview the facecam crop.")
+    duration = float(i.get("duration") or 0)
+    if duration < 3:
+        raise ValueError("This video is too short to sample a middle frame.")
+    at = random.uniform(duration * 0.4, duration * 0.6)
+    start, end = max(0, at - 1), min(duration, at + 1)
+    root = config.TMP_DIR / "facecam-preview"
+    root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="frame-", dir=root) as tmp:
+        video = download_section(url, Path(tmp), "sample", start, end, 360)
+        shot_dir = Path(tmp) / "shot"
+        if not save_thumb(shot_dir, video=video):
+            raise RuntimeError("Couldn't extract a frame from that video.")
+        shot = shot_dir / "clips" / "thumb.jpg"
+        data = shot.read_bytes()
+        probe_info = probe(video)
+        out = {"thumb": "data:image/jpeg;base64," + base64.b64encode(data).decode(),
+               "width": probe_info["width"], "height": probe_info["height"], "at": round(at, 1)}
+    if len(_PREVIEW_FRAMES) >= 50:
+        _PREVIEW_FRAMES.pop(next(iter(_PREVIEW_FRAMES)))
+    _PREVIEW_FRAMES[url] = out
     return out
 
 

@@ -692,6 +692,27 @@ def link_preview(request: Request, url: str = ""):
         raise HTTPException(422, "Couldn't open that video. Check the link is public and complete.")
 
 
+@app.get("/api/preview/frame")
+def link_preview_frame(request: Request, url: str = ""):
+    url = url.strip()[:500]
+    if not media.site_allowed(url):
+        raise HTTPException(400, "Paste a full link to a YouTube, Twitch or Kick video.")
+    try:
+        auth.throttle(f"preview-frame:{_me(request).id}", 6, 60)
+    except auth.AuthError:
+        raise HTTPException(429, "Too many frame previews. Wait a moment.")
+    try:
+        return _lookup(media.preview_frame, url)
+    except media.YouTubeBlocked as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(422, "Couldn't sample a frame from that video. Try uploading the video instead.")
+
+
 @app.post("/api/jobs")
 def create_from_link(body: dict = Body(...)):
     _need_verified()
@@ -1548,9 +1569,10 @@ def add_posts(body: dict = Body(...)):
     clip = next((c for c in job["clips"] if c["id"] == body.get("clip")), None) if job else None
     if not clip or clip.get("status") != "done":
         raise HTTPException(404, "That clip is not ready")
-    made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")))
+    made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20],
+                           now=bool(body.get("now")), repost=bool(body.get("repost")))
     if not made:
-        raise HTTPException(400, "Nothing was queued. Pick at least one account this clip has not already gone to.")
+        raise HTTPException(400, "Nothing was queued. This clip is already queued, uploading, or posted to the selected account. To upload a new copy, enable reposting first.")
     return {"queued": len(made)}
 
 

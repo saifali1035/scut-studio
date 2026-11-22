@@ -132,10 +132,12 @@ _lock = threading.RLock()
 on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first finishes
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
-            "range_start": None, "range_end": None, "clip_profile": "balanced", "clip_mode": "highlights", "parts": 3}
+            "range_start": None, "range_end": None, "clip_profile": "balanced", "clip_mode": "highlights", "parts": 3,
+            "facecam_x": 2, "facecam_y": 58, "facecam_w": 21, "facecam_h": 22, "captions": True}
 
 
-LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080), "parts": (1, 20)}
+LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080), "parts": (1, 20),
+          "facecam_x": (0, 99), "facecam_y": (0, 99), "facecam_w": (1, 100), "facecam_h": (1, 100)}
 
 
 def clean_options(options) -> dict:
@@ -155,6 +157,8 @@ def clean_options(options) -> dict:
             v = v if v in render.STYLES else DEFAULTS["style"]
         elif k == "layout":
             v = v if v in render.LAYOUTS else DEFAULTS["layout"]
+        elif k == "captions":
+            v = bool(v)
         else:                                    # range_start, range_end: seconds into the video
             v = float(v)
             if not math.isfinite(v) or v < 0:
@@ -162,6 +166,8 @@ def clean_options(options) -> dict:
         out[k] = v
     if out.get("range_end") is not None and out["range_end"] <= out.get("range_start", 0):
         raise ValueError("The end of the chosen part must be after its start.")
+    if out.get("facecam_x", DEFAULTS["facecam_x"]) + out.get("facecam_w", DEFAULTS["facecam_w"]) > 100 or out.get("facecam_y", DEFAULTS["facecam_y"]) + out.get("facecam_h", DEFAULTS["facecam_h"]) > 100:
+        raise ValueError("The facecam crop must fit inside the video frame.")
     return out
 
 
@@ -317,7 +323,7 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     c = creators.get(creator) if creator else None
     if c:
         d = creators.root(c["id"]) / ("live" if kind == "live" else "videos") / jid
-        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "clip_profile")}}
+        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "clip_profile", "captions")}}
     else:
         d, base, creator = config.user_dir(ctx.uid()) / "jobs" / jid, dict(DEFAULTS), None
     d.mkdir(parents=True)
@@ -355,7 +361,7 @@ def attach_gameplay(job, source: Path):
 
 
 def attach_gameplay_url(job, url: str):
-    """Remember a gameplay link; only a short loopable section is downloaded when rendering starts."""
+    """Remember the gameplay link; the longest required clip section is downloaded when rendering starts."""
     job["gameplay_url"] = url
     save(job)
 
@@ -419,9 +425,6 @@ def request_render(jid, cid, changes: dict):
     for k in ("start", "end"):
         if k in changes:
             new[k] = round(float(changes[k]), 2)
-    if any(k in changes and new[k] != clip[k] for k in ("start", "end")):
-        new["cold_open"] = None
-        new["cold_open_enabled"] = False
     if "src_offset" in clip:  # live clip: can only move inside the saved piece of stream
         new["start"] = max(new["start"], clip["src_offset"])
         new["end"] = min(new["end"], clip["src_end"])
@@ -432,8 +435,8 @@ def request_render(jid, cid, changes: dict):
     for k in ("hook", "title", "description", "style", "layout"):
         if k in changes:
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
-    if "cold_open_enabled" in changes:
-        new["cold_open_enabled"] = bool(changes["cold_open_enabled"] and new.get("cold_open"))
+    if "captions" in changes:
+        new["captions"] = bool(changes["captions"])
     if new.get("style") not in render.STYLES:
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
@@ -453,7 +456,7 @@ def render_one(job, clip, words):
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
         local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
-        span = [round(clip["start"], 2), round(clip["end"], 2), "en2"]      # "en2": captions made always-English
+        span = [round(clip["start"], 2), round(clip["end"], 2), "spoken2"]
         if clip.get("fixed_for") == span and clip.get("fixed_words") and not any(
                 roman.needs_roman(w.get("w", "")) for w in clip["fixed_words"]):
             raw = clip["fixed_words"]          # already tidied for this exact span: no second AI call
@@ -461,8 +464,7 @@ def render_one(job, clip, words):
             raw = [w for w in words if clip["start"] - 1 <= w["s"] <= clip["end"] + 1]
             try:
                 usage.set_context(job.get("creator"), job.get("title") or "")
-                raw = brain.english_captions(raw, job.get("lang") or "", job.get("title") or "",
-                                             youtube_english=lambda: _english_part(job, clip))
+                raw = brain.fix_caption_words(raw, job.get("title") or "", job.get("lang") or "")
                 clip.update(fixed_words=raw, fixed_for=span)
             except Exception:  # noqa: BLE001 - captions still render with the words as heard
                 pass
@@ -587,11 +589,6 @@ def _run_job(job):
         return
     usage.set_context(job["creator"], job["title"] or src.get("name"))
     resuming = bool(job.pop("resume", False)) and (d / "words.json").is_file()
-    if (o.get("layout") == "split" and job.get("gameplay_url")
-            and not (job.get("gameplay_path") and Path(job["gameplay_path"]).is_file())):
-        _set(job, stage="Getting gameplay footage")
-        game = media.download_section(job["gameplay_url"], d, "gameplay", 0, 45, int(o["quality"]))
-        _set(job, gameplay_path=str(game))
     if resuming:   # after a restart: keep the transcript parts, clips and AI answers already made, and carry on
         _set(job, status="running", stage="Picking up where it stopped", error=None)
     else:
@@ -651,6 +648,18 @@ def _run_job(job):
     span = (hi - lo) / 16000
     if o.get("clip_mode") == "split" and span < int(o.get("parts", 3)) * 3:
         raise RuntimeError("The selected video range is too short for that many parts. Each part must be at least 3 seconds.")
+    if (o.get("layout") == "split" and job.get("gameplay_url")
+            and not (job.get("gameplay_path") and Path(job["gameplay_path"]).is_file())):
+        # Only fetch as much as the longest output can use. The renderer holds the last frame if
+        # the linked gameplay is shorter, so there's no need to download the whole source video.
+        if o.get("clip_mode") == "split":
+            game_seconds = span / max(1, int(o.get("parts", 3)))
+        else:
+            game_seconds = min(span, float(o.get("max_len", 60)))
+        _set(job, stage="Getting gameplay footage")
+        game = media.download_section(job["gameplay_url"], d, "gameplay", 0,
+                                      min(job["duration"], game_seconds), int(o["quality"]))
+        _set(job, gameplay_path=str(game))
     db = media.loudness_per_second(audio[lo:hi])
 
     vlock, vstate = threading.Lock(), {}
@@ -789,7 +798,8 @@ def _run_job(job):
             notes.append(ai["note"])
         for c in found:
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
-                     end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"], status="queued", version=0)
+                     end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"], status="queued", version=0,
+                     **{k: o[k] for k in ("facecam_x", "facecam_y", "facecam_w", "facecam_h", "captions")})
             job["clips"].append(c)
             futures.append((renders.submit(ctx.bind(make), c, list(words)), c))
         job["ai"] = {"model": model, "tokens": tokens, "note": "", "log": notes[-5:]}
@@ -807,7 +817,8 @@ def _run_job(job):
             c = {"id": f"clip{i + 1:02d}", "start": a, "end": b, "score": 0,
                  "category": "other", "hook": label.upper(), "title": f"{job['title']} - {label}"[:100],
                  "description": f"Part {i + 1} of {count}.", "hashtags": [], "reason": "Sequential part of the selected video.",
-                 "style": o["style"], "layout": o["layout"], "status": "queued", "version": 0}
+                 "style": o["style"], "layout": o["layout"], "status": "queued", "version": 0,
+                 **{k: o[k] for k in ("facecam_x", "facecam_y", "facecam_w", "facecam_h", "captions")}}
             job["clips"].append(c)
         job["done_blocks"] = len(blocks)
         save(job)

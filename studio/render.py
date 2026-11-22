@@ -79,7 +79,8 @@ def install_fonts():
 
 
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
-           "split": "Speaker + gameplay split screen"}
+           "split": "Creator + separate gameplay split screen",
+           "facecam": "Facecam + gameplay from the same video"}
 
 
 def _ts(t):
@@ -113,7 +114,7 @@ def geometry(src_w, src_h, layout):
     """Where the video sits in the 1080x1920 frame, and where hook and captions go."""
     if layout == "split":
         return layout, H // 2, int(H * 0.13), int(H * 0.75)
-    if src_h >= src_w and layout != "crop":
+    if src_h >= src_w and layout not in ("crop", "facecam"):
         layout = "crop"  # already vertical or square: nothing to gain from a blurred fill
     if layout == "blur":
         fg_h = min(H, int(round(W * src_h / src_w / 2)) * 2)
@@ -158,19 +159,7 @@ def _hook_events(hook, dur, y):
     return ev
 
 
-def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y, cold_open=None) -> str:
-    if cold_open:
-        teaser_start, teaser_end = start + cold_open[0], start + cold_open[1]
-        teaser_dur = teaser_end - teaser_start
-        teased, main = [], []
-        for word in words:
-            a, b = max(word["s"], teaser_start), min(word["e"], teaser_end)
-            if b > a:
-                teased.append(dict(word, s=a - teaser_start, e=b - teaser_start))
-            a, b = max(word["s"], start), min(word["e"], end)
-            if b > a:
-                main.append(dict(word, s=a - start + teaser_dur, e=b - start + teaser_dur))
-        return build_ass(teased + main, 0, end - start + teaser_dur, hook, style_name, highlight, hook_y, cap_y)
+def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y, include_captions=True) -> str:
     st = STYLES.get(style_name, STYLES["bounce"])
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
@@ -191,6 +180,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dur = end - start
     ev = _hook_events(_clean(hook), dur, hook_y)
+    if not include_captions:
+        return head + "\n".join(ev) + "\n"
     f = _Font.get(st["font"])
     inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
     inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
@@ -242,26 +233,155 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return head + "\n".join(ev) + "\n"
 
 
-def _filter(layout, fg_h, cold_open=None):
-    prefix, video = "", "[0:v]"
-    if cold_open:
-        a, b = cold_open
-        prefix = (f"[0:v]split=2[tease0][main0];[tease0]trim=start={a:.3f}:end={b:.3f},"
-                  f"setpts=PTS-STARTPTS[tease];[main0]setpts=PTS-STARTPTS[main];"
-                  f"[tease][main]concat=n=2:v=1:a=0[base];")
-        video = "[base]"
+def _filter(layout, fg_h, duration=0, src_w=0, src_h=0, facecam=None):
     if layout == "crop":
-        return prefix + f"{video}fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
+        return f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
     if layout == "split":
         half = H // 2
-        return prefix + (f"{video}fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[top];"
-                f"[1:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[game];"
+        hold = max(1, float(duration))
+        return (f"[0:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[top];"
+                f"[1:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},"
+                f"tpad=stop_mode=clone:stop_duration={hold:.3f},setsar=1[game];"
                 f"[top][game]vstack=inputs=2,setsar=1[v0];")
-    return prefix + (f"{video}fps={config.OUT_FPS},split=2[a][b];"
+    if layout == "facecam":
+        # Both panels come from the same decoded frames, so their timestamps always match.
+        # The facecam crop is user-positioned in percentages. For the gameplay panel, choose
+        # the vertical crop that overlaps that box least (common stream layouts put it in a corner).
+        box = facecam or {}
+        fx = max(0, min(99, float(box.get("facecam_x", 2)))) / 100
+        fy = max(0, min(99, float(box.get("facecam_y", 58)))) / 100
+        fw = max(1, min(100 - fx * 100, float(box.get("facecam_w", 21)))) / 100
+        fh = max(1, min(100 - fy * 100, float(box.get("facecam_h", 22)))) / 100
+        iw, ih = max(2, int(src_w)), max(2, int(src_h))
+        ratio = W / (H // 2)
+        cw, ch = min(iw, int(ih * ratio)), min(ih, int(iw / ratio))
+        bx, by, bw, bh = fx * iw, fy * ih, fw * iw, fh * ih
+        xs = sorted(set((0, max(0, (iw - cw) // 2), max(0, iw - cw))) )
+        ys = sorted(set((0, max(0, (ih - ch) // 2), max(0, ih - ch))) )
+        gx = min(xs, key=lambda x: max(0, min(x + cw, bx + bw) - max(x, bx)))
+        gy = min(ys, key=lambda y: max(0, min(y + ch, by + bh) - max(y, by)))
+        crop_x, crop_y = int(iw * fx), int(ih * fy)
+        crop_w, crop_h = max(2, int(iw * fw)), max(2, int(ih * fh))
+        tracking = "sendcmd=f=facecam.cmd," if box.get("track_commands_file") else ""
+        return (f"[0:v]fps={config.OUT_FPS},split=2[cam0][game0];"
+                f"[cam0]{tracking}crop@cam={crop_w}:{crop_h}:{crop_x}:{crop_y},"
+                f"scale={W}:{H//2}:force_original_aspect_ratio=increase,crop={W}:{H//2},setsar=1[cam];"
+                f"[game0]crop={cw}:{ch}:{gx}:{gy},scale={W}:{H//2}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{H//2},setsar=1[game];[cam][game]vstack=inputs=2,setsar=1[v0];")
+    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
             f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v0];")
+
+
+def _track_facecam(src: Path, start: float, duration: float, src_w: int, src_h: int, box: dict,
+                   work: Path) -> dict:
+    """Track a face inside the selected webcam area locally, adjusting crop position and size."""
+    try:
+        import cv2
+    except ImportError:
+        return box
+    iw, ih = max(2, int(src_w)), max(2, int(src_h))
+    x = max(0, min(iw - 2, int(iw * float(box.get("facecam_x", 2)) / 100)))
+    y = max(0, min(ih - 2, int(ih * float(box.get("facecam_y", 58)) / 100)))
+    w = max(2, min(iw - x, int(iw * float(box.get("facecam_w", 21)) / 100)))
+    h = max(2, min(ih - y, int(ih * float(box.get("facecam_h", 22)) / 100)))
+    detector = cv2.CascadeClassifier(str(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"))
+    cap = cv2.VideoCapture(str(src))
+    if detector.empty() or not cap.isOpened():
+        cap.release()
+        return box
+    step = 0.75
+    scale = max(1.0, max(iw, ih) / 960)
+
+    def decode_at(t):
+        cap.set(cv2.CAP_PROP_POS_MSEC, (start + t) * 1000)
+        ok, frame = cap.read()
+        if not ok:
+            return None
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if scale > 1:
+            gray = cv2.resize(gray, (int(iw / scale), int(ih / scale)))
+        return gray
+
+    def face_in(gray, region, near):
+        rx, ry, rw, rh = region
+        rx, ry = max(0, rx), max(0, ry)
+        rw, rh = min(iw - rx, rw), min(ih - ry, rh)
+        if rw < 2 or rh < 2:
+            return None
+        faces = detector.detectMultiScale(gray[int(ry / scale):int((ry + rh) / scale),
+                                               int(rx / scale):int((rx + rw) / scale)],
+                                          scaleFactor=1.12, minNeighbors=5,
+                                          minSize=(max(16, int(w / scale * .16)), max(16, int(h / scale * .16))))
+        found = []
+        for fx, fy, fw, fh in faces:
+            cx, cy = rx + (fx + fw / 2) * scale, ry + (fy + fh / 2) * scale
+            dist = ((cx - near[0]) ** 2 + (cy - near[1]) ** 2) ** .5
+            found.append((dist, cx, cy, fh * scale))
+        return min(found) if found else None
+
+    initial_center = (x + w / 2, y + h / 2)
+    try:
+        initial_face = None
+        initial_t = 0.0
+        # The stream may cut away from the webcam at a clip boundary. Look briefly for the first face
+        # inside the selected webcam area, then hold the starting crop until it appears.
+        for probe in (0.0, step, 2 * step, 3 * step, 4 * step):
+            if probe >= duration:
+                break
+            gray = decode_at(probe)
+            if gray is None:
+                continue
+            hit = face_in(gray, (x, y, w, h), initial_center)
+            if hit and hit[0] <= max(w, h) * .8:
+                initial_face, initial_t = hit, probe
+                break
+        # If the chosen facecam area contains no face, keep that crop instead of following gameplay NPCs.
+        if initial_face is None:
+            return box
+        _, initial_fx, initial_fy, initial_face_h = initial_face
+        expected = (initial_fx, initial_fy)
+        face_offset = (initial_center[0] - initial_fx, initial_center[1] - initial_fy)
+        crop_scale = 1.0
+        points = [(0.0, x, y, w, h)]
+        if initial_t:
+            points.append((initial_t, x, y, w, h))
+        t = initial_t + step
+        while t < duration:
+            gray = decode_at(t)
+            if gray is None:
+                break
+            reach_x, reach_y = max(w, int(iw * .08)), max(h, int(ih * .08))
+            found = face_in(gray, (expected[0] - reach_x, expected[1] - reach_y,
+                                   2 * reach_x, 2 * reach_y), expected)
+            max_origin = max(w, h, int(min(iw, ih) * .18))
+            if found and found[0] <= max(w, h) * 1.25:
+                _, cx, cy, face_h = found
+                if ((cx - initial_fx) ** 2 + (cy - initial_fy) ** 2) ** .5 <= max_origin:
+                    expected = (expected[0] * .28 + cx * .72, expected[1] * .28 + cy * .72)
+                    desired = max(.72, min(1.35, initial_face_h / max(1, face_h)))
+                    crop_scale = max(crop_scale * .9, min(crop_scale * 1.1, crop_scale * .55 + desired * .45))
+                    nw, nh = max(2, min(iw, int(w * crop_scale))), max(2, min(ih, int(h * crop_scale)))
+                    nx = max(0, min(iw - nw, int(expected[0] + face_offset[0] * crop_scale - nw / 2)))
+                    ny = max(0, min(ih - nh, int(expected[1] + face_offset[1] * crop_scale - nh / 2)))
+                    points.append((t, nx, ny, nw, nh))
+            t += step
+    finally:
+        cap.release()
+    if len(points) < 2:
+        return box
+
+    tracked = dict(box)
+    commands = []
+    for t, px, py, pw, ph in points:
+        at = f"{t:.3f}"
+        commands.extend((f"{at} crop@cam x {px}", f"{at} crop@cam y {py}",
+                         f"{at} crop@cam w {pw}", f"{at} crop@cam h {ph}"))
+    (work / "facecam.cmd").write_text(";\n".join(commands) + ";\n", encoding="utf-8")
+    tracked["track_commands_file"] = True
+    return tracked
 
 
 _qsv_ok = None
@@ -276,41 +396,34 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
     if layout == "split" and (not game_src or not game_src.is_file()):
         raise RuntimeError("Add a gameplay video, then remake this clip with the split screen layout.")
-    cold_open = clip.get("cold_open") if clip.get("cold_open_enabled") and clip.get("cold_open") else None
     ass = build_ass(words, start, end, clip.get("hook", ""), clip.get("style", "bounce"),
-                    clip.get("highlight_words", []), hook_y, cap_y, cold_open)
+                    clip.get("highlight_words", []), hook_y, cap_y, clip.get("captions", True))
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
     # folders easily reaches. Inside the work folder every name is short and relative (a drive colon would also
     # break the filter syntax).
     work = Path(tempfile.mkdtemp(prefix="pk"))
     try:
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, game_src, cold_open)
+        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, game_src, src_w, src_h, clip)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str,
-               game_src: Path | None = None, cold_open=None) -> dict:
+               game_src: Path | None = None, src_w=0, src_h=0, facecam=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h, cold_open)
-    audio_map = "0:a:0"
-    if cold_open:
-        a, b = cold_open
-        fc += (f"[0:a]asplit=2[at0][am0];[at0]atrim=start={a:.3f}:end={b:.3f},"
-               "asetpts=PTS-STARTPTS[at];[am0]asetpts=PTS-STARTPTS[am];"
-               "[at][am]concat=n=2:v=0:a=1[teased_audio];")
-        audio_map = "[teased_audio]"
-    fc += f"[v0]ass={name}.ass:fontsdir=f[v]"
+    if layout == "facecam":
+        facecam = _track_facecam(src, start, end - start, src_w, src_h, facecam or {}, work)
+    fc = _filter(layout, fg_h, end - start, src_w, src_h, facecam) + f"[v0]ass={name}.ass:fontsdir=f[v]"
     inputs = ["-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src)]
     if layout == "split":
-        inputs += ["-stream_loop", "-1", "-i", str(game_src)]
+        inputs += ["-i", str(game_src)]
     base = ["ffmpeg", "-y", "-v", "error", *inputs,
-            "-filter_complex", fc, "-map", "[v]", "-map", audio_map, *(["-shortest"] if layout == "split" else []),
+            "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", *(["-shortest"] if layout == "split" else []),
             "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]
     encoders = []

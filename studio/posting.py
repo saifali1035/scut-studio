@@ -55,7 +55,7 @@ def _next_slot(account_id, gap_min, cap):
     return t
 
 
-def enqueue(job, clip, account_ids, now=False) -> list:
+def enqueue(job, clip, account_ids, now=False, repost=False) -> list:
     c = creators.get(job["creator"]) or creators.DEFAULTS
     made = []
     changed = []
@@ -64,14 +64,16 @@ def enqueue(job, clip, account_ids, now=False) -> list:
             acc = accounts.get(aid)
             if not acc:
                 continue
-            existing = next((p for p in _mine() if p["job"] == job["id"] and p["clip"] == clip["id"]
-                             and p["account"] == aid and p["status"] in OPEN + ("posted",)), None)
+            related = [p for p in _mine() if p["job"] == job["id"] and p["clip"] == clip["id"] and p["account"] == aid]
+            existing = next((p for p in related if p["status"] in OPEN), None)
             if existing:
                 if now and existing["status"] == "scheduled":
                     existing["due_at"] = time.time()
                     made.append(existing)
                     changed.append(existing)
-                continue  # never post the same clip to the same account twice
+                continue  # do not create a duplicate while this clip is waiting or uploading
+            if not repost and any(p["status"] == "posted" for p in related):
+                continue  # a fresh upload after deletion must be an explicit choice
             due = time.time() if now else _next_slot(aid, c["post_gap_min"], c["daily_cap"])
             p = {"id": secrets.token_hex(8), "user": ctx.uid(), "job": job["id"], "clip": clip["id"], "creator": job["creator"],
                  "account": aid, "account_name": acc["name"], "platform": acc["platform"], "status": "scheduled",

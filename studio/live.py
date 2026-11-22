@@ -332,15 +332,15 @@ class Session:
             self.spikes += 1
 
     def _ai_check(self, window=None, why=None):
-        """Judge 1 reads only the words. If it finds a moment, judge 2 reads only the loudness and chat activity
-        for the same stretch, without seeing the words. A clip is made when both say yes (or as set in Setup)."""
+        """Use one model request to judge the transcript and its loudness/chat markers together."""
         st = self.settings
-        every = int(st.get("ai_every_min", 3)) or 3
+        every = int(st.get("ai_every_min", 1)) or 1
         if window:                    # just the stretch around a jump, or around someone saying "clip"
             ws, now = max(0.0, window[0]), window[1]
         else:
             now = self.t_done
-            ws = max(0.0, now - max(every, 3) * 60 - 90)  # each check overlaps the last by 90 s, so nothing falls between
+            overlap = int(st.get("max_len", 60)) + 15  # retain enough setup for a clip that crosses a check boundary
+            ws = max(0.0, now - every * 60 - overlap)
         self.last_check = self.t_done
         win = [w for w in self.words if ws <= w["s"] <= now]
         recent = [c for c in self.job["clips"] if c.get("score", 0) > 0 and time.time() - c.get("made_at", 0) < 3600]
@@ -355,10 +355,14 @@ class Session:
             return self._verdict(verdict, f"Skipped: {st['live_per_hour']} clips this hour already")
         usage.set_context(self.job["creator"], self.job["title"] or "Live stream")
         title, up = self.job["title"], self.job["uploader"]
+        lo, hi = int(ws), int(now) + 1
+        z = brain.loud_zscore(np.array(self.db, dtype=np.float32))
+        chat = (lambda s, e: any(self.chat.get(t, 0) for t in range(max(0, int(s)), int(e) + 1))) \
+            if (self.chat_on or self.chat_total) else None
         try:
-            cands, tok = brain.judge_transcript(win, ws, now, title, up, st["min_len"], st["max_len"], self.job["clips"],
-                                                n=1 if every <= 2 else 2, must=must,
-                                                clip_profile=st.get("clip_profile", "balanced"))  # Auto (0) asks for one
+            cands, tok = brain.find_live_clips(
+                win, z, now, chat, title, up, st["min_len"], st["max_len"], self.job["clips"],
+                n=1 if every <= 2 else 2, must=must, clip_profile=st.get("clip_profile", "balanced"))
         except Exception as e:  # noqa: BLE001
             self.job["ai"]["last_error"] = str(e)[-200:]
             return self._verdict(verdict, "AI error: " + str(e)[-80:])
@@ -367,34 +371,14 @@ class Session:
         keep = [c for c in cands if c["score"] >= (40 if must else st["min_score"])]
         verdict["transcript"] = max((c["score"] for c in cands), default=0)
         if not keep:
-            return self._verdict(verdict, "Words judge: nothing clip-worthy")
-        z = brain.loud_zscore(np.array(self.db, dtype=np.float32))
-        lo, hi = int(ws), int(now) + 1
-        chat = [self.chat.get(t, 0) for t in range(lo, hi)] if (self.chat_on or self.chat_total) else None
-        try:
-            sig, tok2 = brain.judge_signals(z[lo:hi], chat, lo, now)
-            self.checks += 1
-            self.tokens += tok2
-        except Exception as e:  # noqa: BLE001
-            sig = []
-            self.job["ai"]["last_error"] = str(e)[-200:]
+            return self._verdict(verdict, "AI found nothing clip-worthy")
         added = 0
         for c in keep:
-            match = [m for m in sig if m["end"] >= c["start"] - 10 and m["start"] <= c["end"] + 10 and m["score"] >= 50]
-            rs = max((m["score"] for m in match), default=0)
-            verdict["reaction"] = rs
-            both = bool(match)
-            ok = both or (st["decide_mode"] == "either" and c["score"] >= 90) or (must and added == 0)
-            if not ok:
-                self.rejected += 1
-                self._verdict(verdict, "Reaction judge said no, not clipped")
-                continue
             if any(abs(c["start"] - k["start"]) < st["min_gap_min"] * 60 for k in self.job["clips"]):
                 self._verdict(verdict, "Too close to the last clip")
                 continue
-            why = "Both judges agreed" if both else ("Words judge was very sure" if c["score"] >= 90 and
-                                                     st["decide_mode"] == "either" else "Forced: no clip for a while")
-            c["judges"] = {"words": c["score"], "reaction": rs or None, "why": why}
+            why = "Combined transcript and reaction check" if not must else "Forced: no clip for a while"
+            c["judges"] = {"words": c["score"], "reaction": None, "why": why}
             c["reason"] = f"{c['reason']} ({why.lower()}.)"
             self._add_clip(c)
             self._verdict(verdict, "Clipped: " + why.lower())
@@ -446,6 +430,7 @@ class Session:
     def _add_clip(self, c):
         self.n += 1
         c.update(id=f"clip{self.n:03d}", style=self.settings["style"], layout=self.settings["layout"],
+                 captions=self.settings.get("captions", True),
                  status="queued", version=0, made_at=time.time())
         with self.lock:
             self.job["clips"].append(c)
@@ -533,7 +518,7 @@ class Session:
                       "chat": [self.chat.get(t, 0) for t in range(max(0, sec - 60), sec)] if self.chat_on or self.chat_total else None,
                       "checks": self.checks, "skipped": self.skipped, "tokens": self.tokens, "words": len(self.words),
                       "rejected": self.rejected, "verdicts": list(reversed(self.verdicts)),
-                      "every_min": int(self.settings.get("ai_every_min", 3)) or 3,
+                      "every_min": int(self.settings.get("ai_every_min", 1)) or 1,
                       "auto": None,
                       "pending_clips": len(self.manual)})
         jobs.save(self.job)
@@ -554,20 +539,22 @@ class Session:
                     self.job.update(status="live", stage="Recording")
                     creators.log(cid, f"Recording started: {self.job['title']}")
                 self._manual_step()
-                # Three ways the AI is asked: on the creator's schedule (every N minutes), and always, when the
-                # stream suddenly gets louder or chat busier, or when someone says "clip".
-                every = int(self.settings.get("ai_every_min", 3)) or 3
+                # Scheduled checks are the rate limit. Loudness, chat and "clip" triggers wait and get folded into
+                # the next one, so a busy stream cannot burst API calls between scheduled checks.
+                every = int(self.settings.get("ai_every_min", 1)) or 1
                 self._watch_spikes()
                 sp, said = self.spike, self.said
+                ai_due = (self.t_done - self.last_check >= every * 60 or
+                          (self.ended and not busy and self.t_done > self.last_check))
                 if self.user_stopped:
                     pass
-                elif said and (self.t_done >= said["t"] + self.SAID_AFTER or (self.ended and not busy)):
+                elif ai_due and said and (self.t_done >= said["t"] + self.SAID_AFTER or (self.ended and not busy)):
                     self.said = None
                     self._ai_check((said["t"] - self.SAID_BEFORE, said["t"] + self.SAID_AFTER), said["why"])
-                elif sp and (self.t_done >= sp["t"] + self.AUTO_AFTER or (self.ended and not busy)):
+                elif ai_due and sp and (self.t_done >= sp["t"] + self.AUTO_AFTER or (self.ended and not busy)):
                     self.spike = None
                     self._ai_check((sp["t"] - self.AUTO_BEFORE, sp["t"] + self.AUTO_AFTER), "Jump: " + sp["why"])
-                elif self.t_done - self.last_check >= every * 60 or (self.ended and not busy and self.t_done > self.last_check):
+                elif ai_due:
                     self._ai_check()
                 self._publish()
             except Exception as e:  # noqa: BLE001

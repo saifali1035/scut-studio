@@ -394,6 +394,17 @@ img.av{object-fit:cover}
 .lay-prev.split{display:flex;flex-direction:column;gap:2px;padding:3px 15px}
 .lay-prev.split i,.lay-prev.split b{display:block;width:28px;height:23px;border-radius:3px;background:linear-gradient(145deg,#FF9B4D,#A75428)}
 .lay-prev.split b{background:linear-gradient(145deg,#64B83E,#246C9B)}
+.lay-prev.facecam{display:flex;flex-direction:column;gap:2px;padding:3px 15px}
+.lay-prev.facecam i,.lay-prev.facecam b{display:block;width:28px;height:23px;border-radius:3px;background:linear-gradient(145deg,#64B83E,#246C9B)}
+.lay-prev.facecam b{background:linear-gradient(145deg,#FF9B4D,#A75428)}
+.facecam-stage{position:relative;width:min(100%,760px);aspect-ratio:16/9;overflow:hidden;border-radius:10px;background:linear-gradient(140deg,#1a252d,#31404a);touch-action:none;user-select:none}
+.facecam-stage>img,.facecam-stage>video{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}
+.facecam-empty{position:absolute;inset:0;display:grid;place-items:center;padding:24px;color:#d5e0e3;text-align:center;font-size:14px}
+.facecam-box{position:absolute;border:2px solid var(--brand);background:rgba(54,214,195,.08);box-shadow:0 0 0 999px rgba(3,10,14,.38);cursor:move;touch-action:none}
+.facecam-box:after{content:"Facecam";position:absolute;left:0;top:0;padding:3px 7px;background:var(--brand);color:#10201e;font-size:12px;font-weight:700}
+.facecam-handle{position:absolute;width:14px;height:14px;border:2px solid #10201e;border-radius:50%;background:var(--brand);z-index:2;touch-action:none}
+.facecam-handle.nw{left:-8px;top:-8px;cursor:nwse-resize}.facecam-handle.ne{right:-8px;top:-8px;cursor:nesw-resize}
+.facecam-handle.sw{left:-8px;bottom:-8px;cursor:nesw-resize}.facecam-handle.se{right:-8px;bottom:-8px;cursor:nwse-resize}
 .seg{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px}
 .composer.compact .seg{background:var(--muted)}
 .seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;border:0;border-radius:7px;background:transparent;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .15s ease,color .15s ease}
@@ -603,7 +614,6 @@ dialog::backdrop{background:rgba(14,12,11,.42);animation:fadein .16s ease}
 .safe-overlay .safe-frame{position:absolute;inset:6% 19% 22% 4%;border:1px dashed rgba(255,255,255,.88);border-radius:8px;box-shadow:0 0 0 999px rgba(8,14,20,.10)}
 .safe-overlay .safe-right{position:absolute;top:6%;right:0;width:18%;height:65%;background:rgba(255,88,78,.23);border-left:1px dashed rgba(255,255,255,.8);display:grid;place-items:center;color:white;font-size:11px;text-shadow:0 1px 3px #000;writing-mode:vertical-rl}
 .safe-overlay .safe-bottom{position:absolute;bottom:0;left:0;width:100%;height:21%;background:rgba(255,88,78,.23);border-top:1px dashed rgba(255,255,255,.8);display:grid;place-items:center;color:white;font-size:11px;text-shadow:0 1px 3px #000}
-.hook-choices{display:flex;flex-wrap:wrap;gap:6px}.hook-choices .btn{font-size:12px}.hook-choices .btn.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-ink)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:50}
 .toast{background:var(--frame);color:var(--frame-text);border:1px solid var(--frame-2);border-radius:var(--r);padding:12px 16px;max-width:380px;animation:rise .2s ease;display:flex;gap:10px;align-items:center;font-weight:500}
@@ -1363,12 +1373,12 @@ function drawAdd(variant) {
   const c = creator();
   $("#add").innerHTML = `<form class="composer ${variant === "hero" ? "big" : "compact"}" id="addform">
     <div class="composer-input">${ic("link")}<input id="url" placeholder="Source video or live stream link" autocomplete="off" aria-label="Source video or live stream link"></div>
-    <div class="composer-input game-link-input">${ic("link")}<input id="gameurl" placeholder="Gameplay video link for the lower half (optional)" autocomplete="off" aria-label="Gameplay video link"><button type="button" class="chip" data-act="usegame">Use gameplay link</button></div>
-    <small class="sub" style="display:block;padding:0 16px 9px 48px">Gameplay links use the first 45 seconds and loop; uploaded gameplay is looped as needed.</small>
+    <div class="composer-input game-link-input" id="gameurlrow">${ic("link")}<input id="gameurl" placeholder="Separate gameplay video link (optional)" autocomplete="off" aria-label="Separate gameplay video link"><button type="button" class="chip" data-act="usegame">Use gameplay link</button></div>
+    <small class="sub" id="gamehint" style="display:block;padding:0 16px 9px 48px">For a separate gameplay video, it starts at the beginning of each clip. Choose Facecam + gameplay to use one source instead.</small>
     <div class="att" id="att"><div><div class="att-in" id="attIn"></div></div></div>
     <div class="composer-bar">
       <button type="button" class="chip" data-act="pickfile">${ic("up")}Upload video</button>
-      <button type="button" class="chip" data-act="pickgame">${ic("up")}Upload gameplay</button>
+      <button type="button" class="chip" data-act="pickgame" id="pickgamebtn">${ic("up")}Upload gameplay</button>
       ${c ? "" : picker("o_creator", "File under creator", [{v:"", label:"No creator", icon:"user"}, ...S.creators.map(x => ({v:x.id, label:x.name, img:x.profile?.pic && x.profile.channel === x.channel ? avatarUrl(x) : ""}))], "")}
       <button type="button" class="chip" data-act="toggleopts" aria-expanded="false">${ic("sliders")}Options</button>
       <span class="grow"></span><span class="hint">or drop a video file here</span>
@@ -1382,10 +1392,15 @@ function drawAdd(variant) {
         ${stepper("o_maxlen", "Longest", c?.max_len ?? 60, 10, 180, 5, "s")}
       </div></div>
       <div class="ob"><div class="ot">Video mode</div><select id="o_clip_mode"><option value="highlights" selected>Find highlights</option><option value="split">Split into parts</option></select><small class="sub">Split the selected range into equal consecutive parts. Highlight count, length and focus are ignored.</small></div>
-      <div class="ob" id="o_parts_box" hidden><div class="ot">Parts</div>${stepper("o_parts", "Number of parts", 3, 1, 20, 1, "")}<small class="sub">Each part is made in order and labeled Part 1, Part 2, and so on.</small></div>
+      <div class="ob" id="o_parts_box" hidden><div class="ot">Parts</div>${stepper("o_parts", "Number of parts", 3, 1, 20, 1, "")}<small class="sub">Each part is made in order and labeled Part 1, Part 2, and so on. For YouTube Shorts, keep each part at 3 minutes or less; longer vertical videos appear under Videos.</small></div>
       <div class="ob" id="o_profile_box"><div class="ot">Clip focus</div><select id="o_clip_profile">${opts(S.status.clip_profiles, c?.clip_profile ?? "balanced")}</select><small class="sub">Steers which moments the AI looks for.</small></div>
       <div class="ob"><div class="ot">Caption style</div>${choice("o_style", Object.entries(S.status.styles).map(([k, v]) => ({v:k, label:v, prev:capPrev(k)})), c?.style ?? "bounce")}</div>
-      <div class="ob"><div class="ot">Layout</div>${choice("o_layout", Object.entries(S.status.layouts).map(([k, v]) => ({v:k, label:LAYOUT_SHORT[k] || v, title:v, prev:k === "split" ? `<span class="lay-prev split"><i></i><b></b></span>` : `<span class="lay-prev ${esc(k)}"><span class="ph"><i></i></span></span>`})), c?.layout ?? "blur")}</div>
+      <div class="ob"><div class="ot">Captions</div><label class="ck"><input id="o_captions" type="checkbox"${c?.captions === false ? "" : " checked"}>Burn spoken captions into clips</label><small class="sub">Turn this off for clean video with no word captions. Hook text stays visible.</small></div>
+      <div class="ob"><div class="ot">Layout</div>${choice("o_layout", Object.entries(S.status.layouts).map(([k, v]) => ({v:k, label:LAYOUT_SHORT[k] || v, title:v, prev:k === "split" ? `<span class="lay-prev split"><i></i><b></b></span>` : k === "facecam" ? `<span class="lay-prev facecam"><i></i><b></b></span>` : `<span class="lay-prev ${esc(k)}"><span class="ph"><i></i></span></span>`})), c?.layout ?? "blur")}</div>
+      <div class="ob wide" id="o_facecam_box" hidden><div class="ot">Set the facecam area</div>
+        <div id="facecam-stage" class="facecam-stage"><div class="facecam-empty">Add a video or paste a link to preview it here. Then drag the box over the facecam and resize it from a corner.</div></div>
+        <input type="hidden" id="o_facecam_x" value="2"><input type="hidden" id="o_facecam_y" value="58"><input type="hidden" id="o_facecam_w" value="21"><input type="hidden" id="o_facecam_h" value="22">
+        <small class="sub">Drag inside the box to move it; drag a corner to resize. The crop follows the speaker's face as it moves. Both panels use the same timestamps.</small></div>
       <div class="ob"><div class="ot">Video quality</div><input type="hidden" id="o_quality" value="720"><div class="seg" role="group" aria-label="Video quality">
         <button type="button" data-seg="o_quality" data-v="720" aria-pressed="true">720p<small>Fast</small></button>
         <button type="button" data-seg="o_quality" data-v="1080" aria-pressed="false">1080p<small>Sharper, about 2x slower</small></button></div></div>
@@ -1393,9 +1408,71 @@ function drawAdd(variant) {
         <label>From<input id="o_from" type="number" min="0" placeholder="start" aria-label="From minute">min</label>${ic("arrowr")}
         <label>To<input id="o_to" type="number" min="0" placeholder="end" aria-label="Up to minute">min</label></div></div>
     </div></div></form>`;
-  drawAtt();
+  syncFacecamOptions(); drawAtt();
 }
-const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", split:"Game split"};
+const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", split:"Separate gameplay", facecam:"Facecam + gameplay"};
+function syncFacecamOptions() { const b = $("#o_facecam_box"), l = $("#o_layout"), same = l?.value === "facecam"; if (b && l) b.hidden = !same; [$("#gameurlrow"), $("#gamehint"), $("#pickgamebtn")].forEach(x => { if (x) x.hidden = same; }); syncFacecamBox(); if (same) drawFacecamPreview(); }
+function syncFacecamBox() {
+  const box = $("#facecam-box"); if (!box) return;
+  for (const [axis, id] of [["left", "#o_facecam_x"], ["top", "#o_facecam_y"], ["width", "#o_facecam_w"], ["height", "#o_facecam_h"]]) {
+    const v = Number($(id)?.value); if (Number.isFinite(v)) box.style[axis] = `${v}%`;
+  }
+}
+function drawFacecamPreview() {
+  const stage = $("#facecam-stage"); if (!stage) return;
+  const A = att(), f = A.files[0], l = A.links.find(x => x.state === "ok");
+  const src = f ? `video:${f.src}` : l ? `link:${l.url}` : "";
+  if (stage.dataset.previewSrc !== src) {
+    stage.dataset.previewSrc = src;
+    if (!src) stage.innerHTML = `<div class="facecam-empty">Add a video or paste a link to preview it here. Then drag the box over the facecam and resize it from a corner.</div>`;
+    else if (f) stage.innerHTML = `<video src="${esc(f.src)}#t=1" muted preload="metadata" playsinline></video><div id="facecam-box" class="facecam-box"><i class="facecam-handle nw" data-corner="nw"></i><i class="facecam-handle ne" data-corner="ne"></i><i class="facecam-handle sw" data-corner="sw"></i><i class="facecam-handle se" data-corner="se"></i></div>`;
+    else {
+      stage.innerHTML = `<div class="facecam-empty">Sampling a frame near the middle of the video…</div>`;
+      api("/api/preview/frame?url=" + encodeURIComponent(l.url)).then(frame => {
+        if (stage.dataset.previewSrc !== src) return;
+        stage.style.aspectRatio = `${frame.width}/${frame.height}`;
+        stage.innerHTML = `<img src="${frame.thumb}" alt="Sampled video frame"><div id="facecam-box" class="facecam-box"><i class="facecam-handle nw" data-corner="nw"></i><i class="facecam-handle ne" data-corner="ne"></i><i class="facecam-handle sw" data-corner="sw"></i><i class="facecam-handle se" data-corner="se"></i></div>`;
+        syncFacecamBox();
+      }).catch(() => {
+        if (stage.dataset.previewSrc !== src) return;
+        stage.innerHTML = `<div class="facecam-empty">Couldn't sample a video frame. Try uploading the video file instead.</div>`;
+      });
+    }
+    const media = stage.querySelector("video");
+    if (media) media.addEventListener("loadedmetadata", () => {
+      if (media.videoWidth && media.videoHeight) stage.style.aspectRatio = `${media.videoWidth}/${media.videoHeight}`;
+      if (media.duration > 0) { media.currentTime = media.duration * (0.4 + Math.random() * 0.2); media.addEventListener("seeked", () => media.pause(), {once:true}); }
+      syncFacecamBox();
+    }, {once:true});
+  }
+  syncFacecamBox();
+}
+let facecamDrag = null;
+document.addEventListener("pointerdown", e => {
+  const box = e.target.closest("#facecam-box"), stage = e.target.closest("#facecam-stage");
+  if (!box || !stage) return;
+  e.preventDefault();
+  const rect = stage.getBoundingClientRect(), v = id => Number($(id).value) || 0;
+  facecamDrag = {pointerId:e.pointerId, corner:e.target.closest("[data-corner]")?.dataset.corner || "move", px:e.clientX, py:e.clientY, rect,
+    x:v("#o_facecam_x"), y:v("#o_facecam_y"), w:v("#o_facecam_w"), h:v("#o_facecam_h")};
+  stage.setPointerCapture(e.pointerId);
+});
+document.addEventListener("pointermove", e => {
+  const d = facecamDrag; if (!d || e.pointerId !== d.pointerId) return;
+  const dx = (e.clientX - d.px) / d.rect.width * 100, dy = (e.clientY - d.py) / d.rect.height * 100, c = d.corner;
+  let {x,y,w,h} = d;
+  if (c === "move") { x = Math.max(0, Math.min(100 - w, x + dx)); y = Math.max(0, Math.min(100 - h, y + dy)); }
+  else {
+    if (c.includes("w")) { const right = x + w; x = Math.max(0, Math.min(right - 3, x + dx)); w = right - x; }
+    if (c.includes("e")) w = Math.max(3, Math.min(100 - x, w + dx));
+    if (c.includes("n")) { const bottom = y + h; y = Math.max(0, Math.min(bottom - 3, y + dy)); h = bottom - y; }
+    if (c.includes("s")) h = Math.max(3, Math.min(100 - y, h + dy));
+  }
+  [["#o_facecam_x",x],["#o_facecam_y",y],["#o_facecam_w",w],["#o_facecam_h",h]].forEach(([id,n]) => { $(id).value = Math.round(n); });
+  syncFacecamBox();
+});
+document.addEventListener("pointerup", e => { if (facecamDrag?.pointerId === e.pointerId) facecamDrag = null; });
+document.addEventListener("pointercancel", e => { if (facecamDrag?.pointerId === e.pointerId) facecamDrag = null; });
 const CAP_LOOK = {bounce:{font:"'Archivo Black'", hl:"#FFFF00", up:true}, hype:{font:"Anton", hl:"#FF3C3C", up:true}, clean:{font:"Poppins", hl:"#6BD7FF", up:false, w:800}};
 function capPrev(k) {
   const s = CAP_LOOK[k] || {font:"inherit", hl:"#36D6C3", up:true};
@@ -1433,7 +1510,7 @@ document.addEventListener("click", e => {
   if (!e.target.closest(".pick") || e.target.closest(".pick-new")) closePicks();
   const sg = e.target.closest("[data-seg]");
   if (sg) { $("#" + sg.dataset.seg).value = sg.dataset.v;
-    sg.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b === sg))); return; }
+    sg.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b === sg))); if (sg.dataset.seg === "o_layout") syncFacecamOptions(); return; }
   const st = e.target.closest("[data-step]");
   if (st) { const i = $("#" + st.dataset.step), s = Number(i.step) || 1, d = Number(st.dataset.d);
     const v = Math.min(Number(i.max), Math.max(Number(i.min), (Number(i.value) || 0) + d * s)); i.value = v; }
@@ -1450,7 +1527,7 @@ document.addEventListener("keydown", e => {
 const targetCreator = () => creatorId() || $("#o_creator")?.value || "";
 function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
-  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality"), clip_profile:$("#o_clip_profile").value, clip_mode:$("#o_clip_mode").value, parts:n("#o_parts").value};
+  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), style:$("#o_style").value, layout:$("#o_layout").value, captions:$("#o_captions").checked, quality:n("#o_quality"), clip_profile:$("#o_clip_profile").value, clip_mode:$("#o_clip_mode").value, parts:n("#o_parts"), facecam_x:n("#o_facecam_x"), facecam_y:n("#o_facecam_y"), facecam_w:n("#o_facecam_w"), facecam_h:n("#o_facecam_h")};
   if (n("#o_from") !== null) o.range_start = n("#o_from") * 60;
   if (n("#o_to") !== null) o.range_end = n("#o_to") * 60;
   return o;
@@ -1549,6 +1626,7 @@ function drawAtt() {
   if (n && !A.busy && n < batchMax())
     h += `<button type="button" class="addrow" data-act="addmore">${ic("plus")}Add another video<span>${n} of ${batchMax()}</span></button>`;
   if (box.innerHTML !== h) box.innerHTML = h;
+  drawFacecamPreview();
   box.querySelectorAll("video").forEach(v => v.addEventListener("loadedmetadata", () => {
     const f = att().files.find(x => x.id === v.closest(".lp").dataset.row);
     if (f && !f.dur) { f.dur = v.duration; const th = v.parentElement; if (!th.querySelector(".du")) th.insertAdjacentHTML("beforeend", `<span class="du">${fmtLen(f.dur)}</span>`); }
@@ -1710,7 +1788,7 @@ async function makeClips() {
   A.busy = true; drawAtt();
   let started = 0, failed = 0;
   let gameplayId = "";
-  if (A.gameplay?.kind === "file") {
+  if (opts.layout === "split" && A.gameplay?.kind === "file") {
     A.gameplay.state = "up"; A.gameplay.pct = 0; drawAtt();
     try { gameplayId = await sendGameplay(A.gameplay); }
     catch (e) { A.gameplay.state = "ready"; A.busy = false; drawAtt(); return toast(e.message, "bad"); }
@@ -1718,13 +1796,13 @@ async function makeClips() {
   for (const l of A.links.filter(x => x.state === "ok")) {
     l.sending = true; drawAtt();
     try { await send("/api/jobs", {url: l.url, options: opts, creator: who, gameplay_id: gameplayId,
-      gameplay_url: A.gameplay?.kind === "url" ? A.gameplay.url : ""}); l.state = "done"; started++; }
+      gameplay_url: opts.layout === "split" && A.gameplay?.kind === "url" ? A.gameplay.url : ""}); l.state = "done"; started++; }
     catch (e) { l.state = "bad"; l.msg = e.message; failed++; }
     l.sending = false; drawAtt();
   }
   for (const f of A.files) {
     f.state = "up"; f.pct = 0; drawAtt();
-    try { await sendFile(f, who, gameplayId, A.gameplay?.kind === "url" ? A.gameplay.url : ""); f.state = "done"; started++; }
+    try { await sendFile(f, who, gameplayId, opts.layout === "split" && A.gameplay?.kind === "url" ? A.gameplay.url : ""); f.state = "done"; started++; }
     catch (e) { f.state = "error"; f.err = e.message; failed++; }
     drawAtt();
   }
@@ -1889,8 +1967,8 @@ function drawJobs() {
 
 /* ============================================================ creator pages */
 function costHint(every) {
-  every = Number(every) || 3;
-  return `About ${Math.round(60 / every * 2)} AI calls per live hour at most. Each check covers everything since the last one, so slower checks don't miss moments; they find them later.`;
+  every = Number(every) || 1;
+  return `About ${Math.round(60 / every)} scheduled AI calls per live hour. Clip and spike triggers wait for the next check; one call reads transcript, loudness and chat together.`;
 }
 function channelRows(c) {
   const chs = c.channels || {}, many = Object.keys(chs).length > 1;
@@ -1917,10 +1995,10 @@ function drawCreatorForm() {
   box.innerHTML = `<div class="card"><h2>Their stream</h2><p class="help">Where to record from, and whether to start by itself.</p>
       <div class="chans">${channelRows(c)}</div>
       <div class="fields" style="margin-top:14px"><label class="sw span"><input type="checkbox" data-k="auto_watch" ${c.auto_watch ? "checked" : ""}><span>Record automatically when they go live<small>Checks straight away, then every two minutes.</small></span></label></div></div>
-    <div class="card"><h2>How the AI decides</h2><p class="help">Two separate AI checks. The words judge reads only what was said. The reaction judge sees only how loud the streamer got and how busy chat was, never the words.</p>
+    <div class="card"><h2>How the AI decides</h2><p class="help">One AI request reads the transcript together with loudness and chat signals. This halves API calls and avoids waiting on a second judge.</p>
       <div class="fields">
-        <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min || 3)}</select><small class="sub" id="costhint" style="font-weight:400">${costHint(c.ai_every_min)}</small></label>
-        <p class="help span" style="margin:0">On top of that, the AI always looks straight away when the stream suddenly gets louder or chat gets busier, and when someone says "clip" or "clip it".</p>
+        <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min || 1)}</select><small class="sub" id="costhint" style="font-weight:400">${costHint(c.ai_every_min)}</small></label>
+        <p class="help span" style="margin:0">Loudness, chat and "clip it" triggers are grouped into the next scheduled check to prevent API bursts.</p>
         <label class="f">Most live clips per hour<input data-k="live_per_hour" type="number" min="1" max="60" value="${c.live_per_hour}"></label>
         <label class="f">Make a clip when<select data-k="decide_mode">${opts({both:"Both judges say yes", either:"Both say yes, or the words judge is very sure (90+)"}, c.decide_mode)}</select></label>
         <label class="f">Words judge must score at least<input data-k="min_score" type="number" min="0" max="100" value="${c.min_score}"></label>
@@ -1931,6 +2009,7 @@ function drawCreatorForm() {
     <div class="card"><h2>Clips</h2><p class="help">How this creator's clips look.</p>
       <div class="fields"><label class="f">Clip focus<select data-k="clip_profile">${opts(S.status.clip_profiles, c.clip_profile || "balanced")}</select><small>Guides live and uploaded clips for this creator.</small></label>
         <label class="f">Caption style<select data-k="style">${opts(S.status.styles, c.style)}</select></label>
+        <label class="ck"><input type="checkbox" data-k="captions"${c.captions === false ? "" : " checked"}>Burn spoken captions into clips</label>
         <label class="f">Layout<select data-k="layout">${opts(Object.fromEntries(Object.entries(S.status.layouts).filter(([k]) => k !== "split")), c.layout)}</select></label>
         <label class="f">Shortest clip (seconds)<input data-k="min_len" type="number" value="${c.min_len}"></label>
         <label class="f">Longest clip (seconds)<input data-k="max_len" type="number" value="${c.max_len}"></label>
@@ -2197,11 +2276,10 @@ function drawClipDlg(full) {
           <p class="sub" style="margin-top:8px">${esc(c.reason || "")}</p></div><button class="btn icon ghost" data-act="closedlg" aria-label="Close">${ic("x")}</button></div>
         <h3>On the video</h3>
         <label class="f">Big text<input data-f="hook" value="${esc(c.hook)}"></label>
-        ${c.hook_options?.length ? `<div class="hook-choices" aria-label="Suggested hook options">${c.hook_options.map((h,i) => `<button class="btn sm ${h === c.hook ? "on" : ""}" type="button" data-act="hookpick" data-hook="${esc(h)}">${i === 0 ? "Curiosity" : i === 1 ? "Funny" : "Dramatic"}: ${esc(h)}</button>`).join("")}</div>` : ""}
-        ${c.cold_open ? `<label class="ck"><input data-f="cold_open_enabled" type="checkbox" ${c.cold_open_enabled ? "checked" : ""}>Open with a quick payoff teaser, then replay the clip from the start</label>` : ""}
         <button class="btn sm" type="button" data-act="safetoggle">${D.safe ? "Hide Shorts safe-area guide" : "Show Shorts safe-area guide"}</button>
         <div class="two"><label class="f">Caption style<select data-f="style">${opts(S.status.styles, c.style)}</select></label>
           <label class="f">Layout<select data-f="layout">${opts(j.has_gameplay ? S.status.layouts : Object.fromEntries(Object.entries(S.status.layouts).filter(([k]) => k !== "split")), c.layout)}</select></label></div>
+        <label class="ck"><input type="checkbox" data-f="captions"${c.captions === false ? "" : " checked"}>Burn spoken captions into this clip</label>
         <div class="two"><label class="f">Start (seconds)<input data-f="start" type="number" step="0.5" value="${c.start}"></label>
           <label class="f">End (seconds)<input data-f="end" type="number" step="0.5" value="${c.end}"></label></div>
         <h3>Post text</h3>
@@ -2211,6 +2289,7 @@ function drawClipDlg(full) {
         <h3>Post it</h3>
         <div id="dposts" class="row" style="gap:4px"></div>
         ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
+          ${Object.values(c.posts || {}).some(p => p.status === "posted") ? `<label class="ck" style="margin-top:8px"><input id="repost-copy" type="checkbox">Allow reposting to accounts this clip was already posted to</label><p class="help" style="margin:0">This uploads a new copy. Use it if you deleted the earlier upload.</p>` : ""}
           <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}Post now</button><button class="btn" data-act="postqueue">Add to queue</button></div>`
           : `<p class="help">No accounts connected yet. Connect one in Settings.</p>`}
         <div class="row" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--line)">
@@ -2354,10 +2433,6 @@ document.addEventListener("click", async e => {
     if (a === "addmore") { const u = $("#url"); return u && !u.value ? (u.focus(), toast("Paste another link, or drop a file anywhere on the box.")) : $("#file").click(); }
     if (a === "closedlg") return $("#clipdlg").close();
     if (a === "openclip") return openClip(d.j, d.c);
-    if (a === "hookpick") {
-      const input = $("#clipdlg [data-f=hook]"); if (input) input.value = d.hook || "";
-      $$("#clipdlg [data-act=hookpick]").forEach(x => x.classList.toggle("on", x === b)); return;
-    }
     if (a === "safetoggle") { D.safe = !D.safe; return drawClipDlg(true); }
     if (a === "newcreator") {
       const dlg = $("#formdlg");
@@ -2555,8 +2630,13 @@ document.addEventListener("click", async e => {
     if (a === "postnow" || a === "postqueue") {
       const accs = $$("#clipdlg [data-pacc]:checked").map(i => i.value);
       if (!accs.length) return toast("Tick at least one account first.", "bad");
-      if (a === "postnow" && !await ask("Post now?", `This clip goes to ${accs.length} account${accs.length > 1 ? "s" : ""} straight away.`, "Post now")) return;
-      await send("/api/posts", {job:D.jid, clip:D.cid, accounts:accs, now:a === "postnow"});
+      const repost = !!$("#repost-copy")?.checked;
+      const action = repost ? "Repost as a new upload?" : a === "postnow" ? "Post now?" : "Add to queue?";
+      const detail = repost
+        ? `This uploads a new copy of the clip to ${accs.length} selected account${accs.length > 1 ? "s" : ""}. The earlier upload will not be changed.`
+        : `This clip goes to ${accs.length} account${accs.length > 1 ? "s" : ""} ${a === "postnow" ? "straight away" : "through the posting queue"}.`;
+      if (!await ask(action, detail, repost ? "Upload new copy" : a === "postnow" ? "Post now" : "Add to queue")) return;
+      await send("/api/posts", {job:D.jid, clip:D.cid, accounts:accs, now:a === "postnow", repost});
       toast(a === "postnow" ? "Posting now" : "Added to the queue", "ok"); return tick();
     }
   } catch (err) { b.disabled = false; toast(err.message, "bad"); }
