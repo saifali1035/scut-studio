@@ -103,6 +103,8 @@ moments, but the focus profiles and AI-written titles are not available in that 
 
 ### Caption, layout and quality options
 
+- **Highlights:** The requested count is a target; the AI tries to fill it when the transcript has enough distinct moments. Choose **Split into parts** when you need an exact count.
+- **Text overlays:** Choose whether clips show the top hook text and spoken captions independently. Either can be turned off for clean footage.
 - **Caption style:** Bounce, Hype or Clean changes the word-by-word caption appearance.
 - **Layout:** Blurred fill keeps the source frame visible over a blurred background; Zoomed in enlarges the frame
   over a blurred background; Fill screen centre-crops the source to fill the vertical canvas; Game split places the
@@ -124,7 +126,8 @@ locally while rendering; if the face disappears briefly, the crop holds its last
 ### Review, edit, cancel and post clips
 
 Open a video job to review the generated clips. You can preview, download, copy a clip, edit its title and hook,
-choose from three suggested hooks, adjust the clip timing, or remake it with another caption style, layout or
+choose from three suggested hooks, adjust the clip timing, switch top hook text or spoken captions on or off,
+or remake it with another caption style, layout or
 quality. For Hindi speech, hooks and titles are written in Roman-script Hinglish. When the AI finds a short payoff
 worth teasing, the clip opens with that excerpt and then replays from the original start; turn this **Cold open**
 option off in the editor if you prefer a straight cut. The editor's **Shorts safe-area guide** marks approximate

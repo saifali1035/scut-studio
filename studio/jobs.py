@@ -133,7 +133,8 @@ on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first f
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
             "range_start": None, "range_end": None, "clip_profile": "balanced", "clip_mode": "highlights", "parts": 3,
-            "facecam_x": 2, "facecam_y": 58, "facecam_w": 21, "facecam_h": 22, "captions": True}
+            "facecam_x": 2, "facecam_y": 58, "facecam_w": 21, "facecam_h": 22, "captions": True,
+            "show_hook": True}
 
 
 LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080), "parts": (1, 20),
@@ -157,7 +158,7 @@ def clean_options(options) -> dict:
             v = v if v in render.STYLES else DEFAULTS["style"]
         elif k == "layout":
             v = v if v in render.LAYOUTS else DEFAULTS["layout"]
-        elif k == "captions":
+        elif k in ("captions", "show_hook"):
             v = bool(v)
         else:                                    # range_start, range_end: seconds into the video
             v = float(v)
@@ -323,16 +324,18 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     c = creators.get(creator) if creator else None
     if c:
         d = creators.root(c["id"]) / ("live" if kind == "live" else "videos") / jid
-        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "clip_profile", "captions")}}
+        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "clip_profile", "captions", "show_hook")}}
     else:
         d, base, creator = config.user_dir(ctx.uid()) / "jobs" / jid, dict(DEFAULTS), None
     d.mkdir(parents=True)
     opts = {**base, **clean_options(options)}
     if opts["min_len"] >= opts["max_len"]:
         opts["min_len"] = max(5, opts["max_len"] - 5)
+    source_name = str(source.get("name") or "")
+    title = Path(source_name).stem if source.get("type") == "file" else source_name
     job = {"id": jid, "user": ctx.uid(), "kind": kind, "creator": creator, "dir": str(d), "created": time.time(), "source": source,
            "options": opts, "status": "queued", "stage": "Waiting", "progress": 0.0,
-           "title": source.get("name", ""), "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {}}
+           "title": title, "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {}}
     with _lock:
         _jobs[jid] = job
         _by_user.setdefault(job["user"], {})[jid] = job
@@ -437,6 +440,8 @@ def request_render(jid, cid, changes: dict):
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
     if "captions" in changes:
         new["captions"] = bool(changes["captions"])
+    if "show_hook" in changes:
+        new["show_hook"] = bool(changes["show_hook"])
     if new.get("style") not in render.STYLES:
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
@@ -799,7 +804,7 @@ def _run_job(job):
         for c in found:
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
                      end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"], status="queued", version=0,
-                     **{k: o[k] for k in ("facecam_x", "facecam_y", "facecam_w", "facecam_h", "captions")})
+                     **{k: o[k] for k in ("facecam_x", "facecam_y", "facecam_w", "facecam_h", "captions", "show_hook")})
             job["clips"].append(c)
             futures.append((renders.submit(ctx.bind(make), c, list(words)), c))
         job["ai"] = {"model": model, "tokens": tokens, "note": "", "log": notes[-5:]}
@@ -818,7 +823,7 @@ def _run_job(job):
                  "category": "other", "hook": label.upper(), "title": f"{job['title']} - {label}"[:100],
                  "description": f"Part {i + 1} of {count}.", "hashtags": [], "reason": "Sequential part of the selected video.",
                  "style": o["style"], "layout": o["layout"], "status": "queued", "version": 0,
-                 **{k: o[k] for k in ("facecam_x", "facecam_y", "facecam_w", "facecam_h", "captions")}}
+                 **{k: o[k] for k in ("facecam_x", "facecam_y", "facecam_w", "facecam_h", "captions", "show_hook")}}
             job["clips"].append(c)
         job["done_blocks"] = len(blocks)
         save(job)

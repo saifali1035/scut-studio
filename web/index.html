@@ -1387,15 +1387,15 @@ function drawAdd(variant) {
     </div>
     <div class="composer-opts" inert><div class="og">
       <div class="ob wide" id="o_highlight_count"><div class="ot">Clips</div><div class="nsteps">
-        ${stepper("o_max", "How many", c?.max_clips ?? 6, 1, 20, 1, "")}
+        ${stepper("o_max", "Up to how many highlights", c?.max_clips ?? 6, 1, 20, 1, "")}
         ${stepper("o_min", "Shortest", c?.min_len ?? 15, 5, 120, 5, "s")}
         ${stepper("o_maxlen", "Longest", c?.max_len ?? 60, 10, 180, 5, "s")}
       </div></div>
-      <div class="ob"><div class="ot">Video mode</div><select id="o_clip_mode"><option value="highlights" selected>Find highlights</option><option value="split">Split into parts</option></select><small class="sub">Split the selected range into equal consecutive parts. Highlight count, length and focus are ignored.</small></div>
+      <div class="ob"><div class="ot">Video mode</div><select id="o_clip_mode"><option value="highlights" selected>Find highlights</option><option value="split">Split into parts</option></select><small class="sub">Highlights aim for the count above, but can return fewer if there isn't enough usable material. Split makes the exact number of equal consecutive parts; highlight length and focus are ignored.</small></div>
       <div class="ob" id="o_parts_box" hidden><div class="ot">Parts</div>${stepper("o_parts", "Number of parts", 3, 1, 20, 1, "")}<small class="sub">Each part is made in order and labeled Part 1, Part 2, and so on. For YouTube Shorts, keep each part at 3 minutes or less; longer vertical videos appear under Videos.</small></div>
       <div class="ob" id="o_profile_box"><div class="ot">Clip focus</div><select id="o_clip_profile">${opts(S.status.clip_profiles, c?.clip_profile ?? "balanced")}</select><small class="sub">Steers which moments the AI looks for.</small></div>
       <div class="ob"><div class="ot">Caption style</div>${choice("o_style", Object.entries(S.status.styles).map(([k, v]) => ({v:k, label:v, prev:capPrev(k)})), c?.style ?? "bounce")}</div>
-      <div class="ob"><div class="ot">Captions</div><label class="ck"><input id="o_captions" type="checkbox"${c?.captions === false ? "" : " checked"}>Burn spoken captions into clips</label><small class="sub">Turn this off for clean video with no word captions. Hook text stays visible.</small></div>
+      <div class="ob"><div class="ot">Text overlays</div><label class="ck"><input id="o_show_hook" type="checkbox"${c?.show_hook === false ? "" : " checked"}>Show top hook text</label><label class="ck"><input id="o_captions" type="checkbox"${c?.captions === false ? "" : " checked"}>Burn spoken captions into clips</label><small class="sub">Control the top hook and spoken captions separately.</small></div>
       <div class="ob"><div class="ot">Layout</div>${choice("o_layout", Object.entries(S.status.layouts).map(([k, v]) => ({v:k, label:LAYOUT_SHORT[k] || v, title:v, prev:k === "split" ? `<span class="lay-prev split"><i></i><b></b></span>` : k === "facecam" ? `<span class="lay-prev facecam"><i></i><b></b></span>` : `<span class="lay-prev ${esc(k)}"><span class="ph"><i></i></span></span>`})), c?.layout ?? "blur")}</div>
       <div class="ob wide" id="o_facecam_box" hidden><div class="ot">Set the facecam area</div>
         <div id="facecam-stage" class="facecam-stage"><div class="facecam-empty">Add a video or paste a link to preview it here. Then drag the box over the facecam and resize it from a corner.</div></div>
@@ -1527,7 +1527,7 @@ document.addEventListener("keydown", e => {
 const targetCreator = () => creatorId() || $("#o_creator")?.value || "";
 function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
-  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), style:$("#o_style").value, layout:$("#o_layout").value, captions:$("#o_captions").checked, quality:n("#o_quality"), clip_profile:$("#o_clip_profile").value, clip_mode:$("#o_clip_mode").value, parts:n("#o_parts"), facecam_x:n("#o_facecam_x"), facecam_y:n("#o_facecam_y"), facecam_w:n("#o_facecam_w"), facecam_h:n("#o_facecam_h")};
+  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), style:$("#o_style").value, layout:$("#o_layout").value, captions:$("#o_captions").checked, show_hook:$("#o_show_hook").checked, quality:n("#o_quality"), clip_profile:$("#o_clip_profile").value, clip_mode:$("#o_clip_mode").value, parts:n("#o_parts"), facecam_x:n("#o_facecam_x"), facecam_y:n("#o_facecam_y"), facecam_w:n("#o_facecam_w"), facecam_h:n("#o_facecam_h")};
   if (n("#o_from") !== null) o.range_start = n("#o_from") * 60;
   if (n("#o_to") !== null) o.range_end = n("#o_to") * 60;
   return o;
@@ -2009,6 +2009,7 @@ function drawCreatorForm() {
     <div class="card"><h2>Clips</h2><p class="help">How this creator's clips look.</p>
       <div class="fields"><label class="f">Clip focus<select data-k="clip_profile">${opts(S.status.clip_profiles, c.clip_profile || "balanced")}</select><small>Guides live and uploaded clips for this creator.</small></label>
         <label class="f">Caption style<select data-k="style">${opts(S.status.styles, c.style)}</select></label>
+        <label class="ck"><input type="checkbox" data-k="show_hook"${c.show_hook === false ? "" : " checked"}>Show top hook text on clips</label>
         <label class="ck"><input type="checkbox" data-k="captions"${c.captions === false ? "" : " checked"}>Burn spoken captions into clips</label>
         <label class="f">Layout<select data-k="layout">${opts(Object.fromEntries(Object.entries(S.status.layouts).filter(([k]) => k !== "split")), c.layout)}</select></label>
         <label class="f">Shortest clip (seconds)<input data-k="min_len" type="number" value="${c.min_len}"></label>
@@ -2276,6 +2277,7 @@ function drawClipDlg(full) {
           <p class="sub" style="margin-top:8px">${esc(c.reason || "")}</p></div><button class="btn icon ghost" data-act="closedlg" aria-label="Close">${ic("x")}</button></div>
         <h3>On the video</h3>
         <label class="f">Big text<input data-f="hook" value="${esc(c.hook)}"></label>
+        <label class="ck"><input type="checkbox" data-f="show_hook"${c.show_hook === false ? "" : " checked"}>Show top hook text on this clip</label>
         <button class="btn sm" type="button" data-act="safetoggle">${D.safe ? "Hide Shorts safe-area guide" : "Show Shorts safe-area guide"}</button>
         <div class="two"><label class="f">Caption style<select data-f="style">${opts(S.status.styles, c.style)}</select></label>
           <label class="f">Layout<select data-f="layout">${opts(j.has_gameplay ? S.status.layouts : Object.fromEntries(Object.entries(S.status.layouts).filter(([k]) => k !== "split")), c.layout)}</select></label></div>

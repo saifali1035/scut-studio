@@ -39,8 +39,10 @@ are where the live chat suddenly got much busier, which usually means viewers re
 Video title: {title}
 Channel: {uploader}
 
-Pick up to {n} moments that would work as standalone clips for someone who has never seen the stream:
-funny moments, fails, clutch plays, rage, shock, hot takes, or a short story with a payoff.
+Find up to {n} moments that work as standalone clips for someone who has never seen the stream:
+funny moments, fails, clutch plays, rage, shock, hot takes, or a short story with a payoff. Treat {n} as the target
+when the transcript has enough distinct material. Return fewer only when there are not enough usable moments; do not
+require every clip to be exceptional.
 """
 
 LIVE_NOTE = """
@@ -55,7 +57,9 @@ Rules:
 - Start on the setup line, not mid-sentence. End right after the payoff or reaction, on the last word of a
   complete sentence: never in the middle of a sentence or a thought. The clip must make sense on its own.
 - Do not pick intros, sponsor reads, "like and subscribe", or dead air.
-- Skip weak moments. Fewer strong clips beat many weak ones. Return [] if nothing is worth clipping.
+- Prefer solid, varied moments over only the single strongest moment. For a long transcript, try to fill the
+  requested count with distinct moments. Do not pad with incomplete, repetitive, or incoherent clips; return []
+  only when the transcript has no usable standalone moment.
 - score: 0-100, how likely a stranger keeps watching. Be honest; most clips are 50-80.
 - hook: at most 5 words, ALL CAPS, shown as big text on the video. Curiosity, but true to what happens.
 - title: at most 70 characters, for the post.
