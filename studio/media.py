@@ -341,6 +341,13 @@ def probe(path: Path) -> dict:
     return {"width": w, "height": h, "duration": float(data["format"]["duration"])}
 
 
+def duration(path: Path) -> float:
+    """Read a media file's duration without requiring an audio track."""
+    out = run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+               "-of", "default=noprint_wrappers=1:nokey=1", str(path)])
+    return max(0.0, float(out.strip()))
+
+
 def extract_audio(src: Path, wav: Path):
     # first_pts=0 pads any gap before the audio starts, so second 0 of the wav is second 0 of the file
     # -t: never more audio than the longest video allowed, whatever the file claims about itself

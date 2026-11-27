@@ -4,6 +4,7 @@ import json
 import os
 import math
 import queue
+import random
 import shutil
 import threading
 import time
@@ -662,8 +663,13 @@ def _run_job(job):
         else:
             game_seconds = min(span, float(o.get("max_len", 60)))
         _set(job, stage="Getting gameplay footage")
-        game = media.download_section(job["gameplay_url"], d, "gameplay", 0,
-                                      min(job["duration"], game_seconds), int(o["quality"]))
+        try:
+            game_duration = float(media.info(job["gameplay_url"]).get("duration") or 0)
+        except Exception:  # noqa: BLE001 - keep the existing start-zero fallback if duration lookup fails
+            game_duration = 0.0
+        game_start = random.uniform(0.0, max(0.0, game_duration - game_seconds))
+        game_end = min(game_duration, game_start + game_seconds) if game_duration else game_start + game_seconds
+        game = media.download_section(job["gameplay_url"], d, "gameplay", game_start, game_end, int(o["quality"]))
         _set(job, gameplay_path=str(game))
     db = media.loudness_per_second(audio[lo:hi])
 

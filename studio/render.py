@@ -1,11 +1,12 @@
 """Turns a time range into a vertical clip: 9:16 layout, bouncy word captions, hook title, cover."""
 import re
+import random
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
-from . import config, roman
+from . import config, media, roman
 from .media import NO_WINDOW, run
 
 W, H = config.OUT_W, config.OUT_H
@@ -234,15 +235,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return head + "\n".join(ev) + "\n"
 
 
+def _full_panel(source, background, foreground, output, half):
+    """Fit a complete source frame inside one stacked panel over a blurred fill."""
+    return (f"[{source}]split=2[{background}src][{foreground}src];"
+            f"[{background}src]scale=270:240:force_original_aspect_ratio=increase,crop=270:240,boxblur=6:2,"
+            f"scale={W}:{half},eq=brightness=-0.14:saturation=1.15[{background}];"
+            f"[{foreground}src]scale={W}:{half}:force_original_aspect_ratio=decrease,setsar=1[{foreground}];"
+            f"[{background}][{foreground}]overlay=({W}-w)/2:({half}-h)/2,setsar=1[{output}];")
+
+
 def _filter(layout, fg_h, duration=0, src_w=0, src_h=0, facecam=None):
     if layout == "crop":
         return f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
     if layout == "split":
         half = H // 2
         hold = max(1, float(duration))
-        return (f"[0:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[top];"
-                f"[1:v]fps={config.OUT_FPS},scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},"
-                f"tpad=stop_mode=clone:stop_duration={hold:.3f},setsar=1[game];"
+        return (f"[0:v]fps={config.OUT_FPS},setsar=1[topin];"
+                f"[1:v]fps={config.OUT_FPS},tpad=stop_mode=clone:stop_duration={hold:.3f},setsar=1[gamein];"
+                f"{_full_panel('topin', 'topbg', 'topfg', 'top', half)}"
+                f"{_full_panel('gamein', 'gamebg', 'gamefg', 'game', half)}"
                 f"[top][game]vstack=inputs=2,setsar=1[v0];")
     if layout == "facecam":
         # Both panels come from the same decoded frames, so their timestamps always match.
@@ -254,21 +265,14 @@ def _filter(layout, fg_h, duration=0, src_w=0, src_h=0, facecam=None):
         fw = max(1, min(100 - fx * 100, float(box.get("facecam_w", 21)))) / 100
         fh = max(1, min(100 - fy * 100, float(box.get("facecam_h", 22)))) / 100
         iw, ih = max(2, int(src_w)), max(2, int(src_h))
-        ratio = W / (H // 2)
-        cw, ch = min(iw, int(ih * ratio)), min(ih, int(iw / ratio))
-        bx, by, bw, bh = fx * iw, fy * ih, fw * iw, fh * ih
-        xs = sorted(set((0, max(0, (iw - cw) // 2), max(0, iw - cw))) )
-        ys = sorted(set((0, max(0, (ih - ch) // 2), max(0, ih - ch))) )
-        gx = min(xs, key=lambda x: max(0, min(x + cw, bx + bw) - max(x, bx)))
-        gy = min(ys, key=lambda y: max(0, min(y + ch, by + bh) - max(y, by)))
         crop_x, crop_y = int(iw * fx), int(ih * fy)
         crop_w, crop_h = max(2, int(iw * fw)), max(2, int(ih * fh))
         tracking = "sendcmd=f=facecam.cmd," if box.get("track_commands_file") else ""
         return (f"[0:v]fps={config.OUT_FPS},split=2[cam0][game0];"
                 f"[cam0]{tracking}crop@cam={crop_w}:{crop_h}:{crop_x}:{crop_y},"
                 f"scale={W}:{H//2}:force_original_aspect_ratio=increase,crop={W}:{H//2},setsar=1[cam];"
-                f"[game0]crop={cw}:{ch}:{gx}:{gy},scale={W}:{H//2}:force_original_aspect_ratio=increase,"
-                f"crop={W}:{H//2},setsar=1[game];[cam][game]vstack=inputs=2,setsar=1[v0];")
+                f"{_full_panel('game0', 'gamebg', 'gamefg', 'game', H//2)}"
+                f"[cam][game]vstack=inputs=2,setsar=1[v0];")
     return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
@@ -423,7 +427,11 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
     fc = _filter(layout, fg_h, end - start, src_w, src_h, facecam) + f"[v0]ass={name}.ass:fontsdir=f[v]"
     inputs = ["-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src)]
     if layout == "split":
-        inputs += ["-i", str(game_src)]
+        clip_duration = end - start
+        game_duration = media.duration(game_src)
+        max_seek = max(0.0, game_duration - clip_duration)
+        game_start = random.uniform(0.0, max_seek) if max_seek > 0 else 0.0
+        inputs += ["-ss", f"{game_start:.2f}", "-t", f"{clip_duration:.2f}", "-i", str(game_src)]
     base = ["ffmpeg", "-y", "-v", "error", *inputs,
             "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", *(["-shortest"] if layout == "split" else []),
             "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
